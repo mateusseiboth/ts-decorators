@@ -1,0 +1,17 @@
+export const OPTIONS_FILTER = [
+    "contains",
+    "containing",
+    "startsWith",
+    "endsWith",
+    "equals",
+    "in",
+    "notIn",
+    "inRange",
+    "notInRange",
+    "isNull",
+    "notNull",
+    "greaterThan",
+    "greaterThanOrEqual",
+    "lessThan",
+    "lessThanOrEqual",
+]
