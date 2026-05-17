@@ -4,13 +4,19 @@ import {clearLegacyWarnings, isDecoratorContext, warnLegacy} from "./src/decorat
 import {Auditable, setAuditStorage, type AuditEntry} from "./src/decorators/auditable";
 import {AutoConvert} from "./src/decorators/autoConvert";
 import {CacheMethod, Cacheable, clearAllCache, getCacheStats} from "./src/decorators/cacheable";
+import {folderRouter} from "./src/decorators/folder-router";
 import {DAOFor, ModelTagged, getAllDAOs, getAllModels, getDAO, getModel} from "./src/decorators/getModel";
+import {GlobalRouter} from "./src/decorators/global-router";
 import {Field, InitFields, getFieldTypeByKey, getFieldTypes} from "./src/decorators/initFields";
 import {logDecorator} from "./src/decorators/log";
 import {NestedModel, getNestedModel} from "./src/decorators/nestedModel";
 import {RateLimit, RateLimitMethod, clearRateLimitStore, rateLimitMiddleware} from "./src/decorators/rateLimit";
+import {RegistryRouter} from "./src/decorators/registry-router";
+import {RouteBuilder} from "./src/decorators/router-builder";
+import {ROUTERS_KEY} from "./src/decorators/router-metadata";
 import {Transactional, TransactionalClass, setTransactionalCompanyFn} from "./src/decorators/transactional";
 import {Validate, WithValidation} from "./src/decorators/validate";
+import {validateRouteFile} from "./src/decorators/validate-route-file";
 import {collectFieldTypes} from "./src/functions/collectFieldsTypes";
 import {extractAndRemoveByKey} from "./src/functions/extractAndRemoveByKey";
 import {jwtDecode} from "./src/functions/jwt";
@@ -28,12 +34,16 @@ export {
   Cacheable,
   DAOFor,
   Field,
+  GlobalRouter,
   InitFields,
   ModelTagged,
   NestedModel,
   OPTIONS_FILTER,
+  ROUTERS_KEY,
   RateLimit,
   RateLimitMethod,
+  RegistryRouter,
+  RouteBuilder,
   Transactional,
   TransactionalClass,
   Validate,
@@ -50,6 +60,7 @@ export {
   executePrismaQuery,
   extractAndRemoveByKey,
   filterObjectByModel,
+  folderRouter,
   getAllDAOs,
   getAllModels,
   getCacheStats,
@@ -70,6 +81,7 @@ export {
   removeFromWhere,
   setAuditStorage,
   setTransactionalCompanyFn,
+  validateRouteFile,
   warnLegacy,
   type AuditEntry,
   type IResponsePaginate,
