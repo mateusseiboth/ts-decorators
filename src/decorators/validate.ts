@@ -2,46 +2,72 @@ import "reflect-metadata";
 import type {ZodSchema} from "zod";
 import {isDecoratorContext, warnLegacy} from "./_proxy";
 
-const VALIDATION_META_KEY = Symbol("validation:schema");
+export interface IWithValidation<T = unknown> {
+  schema?: ZodSchema<T>;
+
+  validate(schema?: ZodSchema<T>): T;
+
+  isValid(schema?: ZodSchema<T>): boolean;
+}
 
 /**
- * @Validate - Decorator de parâmetro.
- * NOTA: TC39 Stage 3 NÃO suporta parameter decorators.
- * Este decorator funciona apenas no padrão legacy (experimentalDecorators).
+ * Compat legacy.
+ * NÃO faz nada.
  */
-export function Validate(schema: ZodSchema) {
-  return function (target: Object, propertyKey: string | symbol | undefined, parameterIndex: number) {
+export function Validate(_schema: ZodSchema) {
+  return function (_target: any, _propertyKey: string | symbol | undefined, _parameterIndex: number) {
     warnLegacy("Validate");
-    Reflect.defineMetadata(VALIDATION_META_KEY, schema, target, `param_${parameterIndex}`);
+  };
+}
+
+function createValidationDecorator<TSchema = unknown>(schema?: ZodSchema<TSchema>) {
+  return function <T extends new (...args: any[]) => {}>(OriginalConstructor: T, context?: ClassDecoratorContext) {
+    if (!context || !isDecoratorContext(context)) {
+      warnLegacy("WithValidation");
+    }
+
+    return class extends OriginalConstructor implements IWithValidation<TSchema> {
+      static schema = schema;
+
+      schema = schema;
+
+      validate(customSchema?: ZodSchema<TSchema>): TSchema {
+        const finalSchema = customSchema ?? this.schema ?? (this.constructor as any).schema;
+
+        if (!finalSchema) {
+          throw new Error(`[WithValidation] No validation schema defined for "${this.constructor.name}".`);
+        }
+
+        return finalSchema.parse(this);
+      }
+
+      isValid(customSchema?: ZodSchema<TSchema>): boolean {
+        try {
+          this.validate(customSchema);
+          return true;
+        } catch {
+          return false;
+        }
+      }
+    };
   };
 }
 
 /**
- * @WithValidation - Decorator de classe.
- * Suporta legacy e TC39 Stage 3.
+ * Suporta:
+ *
+ * @WithValidation
+ * @WithValidation(schema)
+ * WithValidation(Class)
  */
-export function WithValidation<T extends {new (...args: any[]): {}}>(constructor: T, context?: ClassDecoratorContext) {
-  if (!context || !isDecoratorContext(context)) {
-    warnLegacy("WithValidation");
+export function WithValidation(...args: any[]): any {
+  // @WithValidation
+  if (typeof args[0] === "function" && args.length <= 2) {
+    const [constructor, context] = args;
+
+    return createValidationDecorator()(constructor, context);
   }
-  return class extends constructor {
-    constructor(...args: any[]) {
-      const paramSchemas = Object.keys(Reflect.getMetadataKeys(constructor.prototype) || [])
-        .map((key) => {
-          if (key.startsWith("param_")) {
-            const index = Number(key.replace("param_", ""));
-            return {index, schema: Reflect.getMetadata(VALIDATION_META_KEY, constructor.prototype, key)};
-          }
-          return null;
-        })
-        .filter(Boolean) as {index: number; schema: ZodSchema}[];
 
-      // Valida cada parâmetro decorado
-      for (const {index, schema} of paramSchemas) {
-        schema.parse(args[index]);
-      }
-
-      super(...args);
-    }
-  };
+  // @WithValidation(schema)
+  return createValidationDecorator(args[0]);
 }

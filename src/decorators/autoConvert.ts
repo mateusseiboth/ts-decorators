@@ -9,7 +9,7 @@ function wrapWithAutoConvert(originalMethod: Function) {
 
     Object.keys(data).forEach((key) => {
       if (key in keysInModel) {
-        const type = getFieldTypeByKey(this, key as keyof typeof this as string);
+        const type = getFieldTypeByKey(this, key as keyof typeof this);
         let val = data[key];
 
         if (val === null || val === undefined) {
