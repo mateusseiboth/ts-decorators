@@ -59,14 +59,19 @@ export async function executePrismaQuery<T>(
     },
     orderBy: options.orderBy,
     include: options.include,
+    distinct: options.distinct,
+    select: options.select,
   });
 
   const treatedDataWithBigIntToString = convertBigIntValues(data);
 
-  //delete to use select (prisma not allow select and include)
+  delete options.skip;
+  delete options.take;
   delete options.include;
-  
-  paginate.count = await objectPrismaQuery.count(options);
+  const countOptions = {
+    where: options.where,
+  };
+  paginate.count = await objectPrismaQuery.count(countOptions);
   const responseWithPaginate = {
     data: {
       data: treatedDataWithBigIntToString,
