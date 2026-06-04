@@ -9,7 +9,7 @@ import {DAOFor, ModelTagged, getAllDAOs, getAllModels, getDAO, getModel} from ".
 import {GlobalRouter} from "./src/decorators/global-router";
 import {Field, InitFields, getFieldTypeByKey, getFieldTypes} from "./src/decorators/initFields";
 import {logDecorator} from "./src/decorators/log";
-import {NestedModel, getNestedModel} from "./src/decorators/nestedModel";
+import {NestedModel, getNestedModel, getNestedModelMeta} from "./src/decorators/nestedModel";
 import {RateLimit, RateLimitMethod, clearRateLimitStore, rateLimitMiddleware} from "./src/decorators/rateLimit";
 import {RegistryRouter} from "./src/decorators/registry-router";
 import {RouteBuilder} from "./src/decorators/router-builder";
@@ -70,6 +70,7 @@ export {
   getModel,
   getModelKeys,
   getNestedModel,
+  getNestedModelMeta,
   getOrderBy,
   getPaginate,
   getWhere,
