@@ -3,7 +3,7 @@ import {OPTIONS_FILTER} from "../constants/default";
 import {Controller} from "../Controller";
 import {getModel} from "../decorators/getModel";
 import {getFieldTypes} from "../decorators/initFields";
-import {collectFieldTypes} from "../functions/collectFieldsTypes";
+import {collectFieldMeta} from "../functions/collectFieldsTypes";
 
 function expandRanges(rawValues: string[], isNumeric: boolean, typePrefix?: string) {
   const expanded: string[] = [];
@@ -50,14 +50,14 @@ export function getWhere<T extends Object>(
 ) {
   let where: Record<string, any> = {};
   const classRecord = getModel(classBase.tag);
-  const fieldTypes = collectFieldTypes(classRecord.prototype);
+  const {types: fieldTypes, listPaths} = collectFieldMeta(classRecord.prototype);
   const keys = Object.keys(fieldTypes as T extends {[key: string]: any} ? T : never);
 
   const conditions: Record<string, any> = {};
 
   keys.forEach((key) => {
     if (req.query[key]) {
-      const condition = createWhereConditionQuery(req.query[key] as string, key, fieldTypes);
+      const condition = createWhereConditionQuery(req.query[key] as string, key, fieldTypes, listPaths);
 
       if (!conditions[key]) conditions[key] = {};
       if (condition.OR?.length) conditions[key].OR = [...(conditions[key].OR || []), ...condition.OR];
@@ -94,18 +94,29 @@ export function getWhere<T extends Object>(
 }
 
 /**
- * Cria condições para OR/NOT e nested fields
+ * Cria condições para OR/NOT e nested fields.
+ *
+ * Quando um segmento do caminho corresponde a uma relação to-many (presente em
+ * `listPaths`), o objeto aninhado é envolvido com `some`, produzindo um filtro
+ * de lista válido no Prisma (ex.: `posts.title` -> `{posts: {some: {title: ...}}}`).
  */
-function buildNestedCondition(key: string, value: any): Record<string, any> {
+function buildNestedCondition(key: string, value: any, listPaths: Set<string> = new Set()): Record<string, any> {
   const keys = key.split("."); // "Bem.name" -> ["Bem","name"]
   let nested = value;
   for (let i = keys.length - 1; i >= 0; i--) {
-    nested = {[keys[i] as keyof typeof nested]: nested};
+    const pathPrefix = keys.slice(0, i + 1).join(".");
+    const inner = listPaths.has(pathPrefix) ? {some: nested} : nested;
+    nested = {[keys[i] as keyof typeof nested]: inner};
   }
   return nested;
 }
 
-export function createWhereConditionQuery(value: string | string[], key: string, modelBase: any): Record<string, any> {
+export function createWhereConditionQuery(
+  value: string | string[],
+  key: string,
+  modelBase: any,
+  listPaths: Set<string> = new Set(),
+): Record<string, any> {
   const rawValues: string[] = Array.isArray(value) ? value : value.split(";").filter(Boolean); // agora divide em múltiplos valores
 
   const isNumericField = modelBase[key] === "number" || modelBase[key] === "bigint";
@@ -179,7 +190,7 @@ export function createWhereConditionQuery(value: string | string[], key: string,
       condition = {equals: normalizedValue};
     }
 
-    const nestedCondition = buildNestedCondition(key, condition);
+    const nestedCondition = buildNestedCondition(key, condition, listPaths);
 
     if (isNegative) NOT.push(nestedCondition);
     else OR.push(nestedCondition);

@@ -83,7 +83,7 @@ describe("@Field com objetos customizados (nested)", () => {
   });
 
   describe("compatibilidade com middlewares", () => {
-    test("collectFieldTypes expande nested to-one (profile.*) mas não array (posts.*)", () => {
+    test("collectFieldTypes expande nested to-one (profile.*) e to-many (posts.*)", () => {
       const fields = collectFieldTypes(new UserModel());
       // diretos
       expect(fields["name"]).toBeDefined();
@@ -92,8 +92,8 @@ describe("@Field com objetos customizados (nested)", () => {
       // to-one expandido
       expect(fields["profile.bio"]).toBeDefined();
       expect(fields["profile.followers"]).toBeDefined();
-      // to-many NÃO expandido (evita where inválido no Prisma)
-      expect(fields["posts.title"]).toBeUndefined();
+      // to-many também expandido (o getWhere envolve com `some`)
+      expect(fields["posts.title"]).toBeDefined();
     });
 
     test("getWhere monta filtro aninhado para profile.bio", () => {
