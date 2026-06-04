@@ -249,6 +249,53 @@ getFieldTypeByKey(new DistrictModel(), "internalNotes"); // → undefined
 
 > **ℹ️ Inheritance:** `getFieldTypes` walks the prototype chain, so a subclass automatically inherits the `@Field()` registrations of its parent class.
 
+#### Custom objects / relations via `@Field(Model)` and `@Field([Model])`
+
+`@Field` also accepts **another Model class** (or an array of one) directly. This registers the field as a nested relation **and** makes `@AutoConvert` instantiate/convert the nested object/array recursively — following the nested model's own `@Field()` types, exactly like it does for the base object.
+
+```ts
+@InitFields
+@ModelTagged
+class PostModel {
+  static tag = 3001;
+  @Field() id!: string;
+  @Field() title!: string;
+  @Field("number") views!: number;
+  @Field("boolean") published!: boolean;
+}
+
+@InitFields
+@ModelTagged
+class UserModel {
+  static tag = 3000;
+  @Field() id!: string;
+  @Field() name!: string;
+
+  @Field(ProfileModel) profile?: ProfileModel; // single nested object
+  @Field([PostModel]) posts?: PostModel[]; // array of nested objects
+
+  constructor(data?: Record<string, any>) {
+    if (data) this.setData(data); // setData decorated with @AutoConvert
+  }
+}
+
+const user = new UserModel({
+  name: "Ana",
+  profile: {bio: "hi", followers: "42"},
+  posts: [{title: "A", views: "10", published: "true"}],
+});
+
+user.profile; // → ProfileModel instance, followers === 42 (number)
+user.posts[0]; // → PostModel instance, views === 10, published === true
+```
+
+> **ℹ️ How it behaves:**
+>
+> - The nested model classes MUST have `@InitFields` + `@Field()`. To be instantiated/converted by `@AutoConvert`, they should expose a `setData(data)` method decorated with `@AutoConvert` (the usual `BaseModel` pattern). Without `setData`, the library falls back to a field-by-field conversion.
+> - `null` / `undefined` nested values are passed through unchanged. A single object given to an array field is normalised to a one-element array. Values already instances of the target model are kept as-is.
+> - **`getWhere` compatibility:** to-one relations (`@Field(Model)`) are expanded into dot-notation keys (e.g. `profile.bio`) just like `@NestedModel`. To-many relations (`@Field([Model])`) are **not** expanded into dot keys (Prisma needs `some`/`every` for list filters), so they never produce invalid where clauses.
+> - **Difference from `@NestedModel`:** `@Field(Model)` opts the field into `@AutoConvert` instantiation. `@NestedModel` remains query-only (it never instantiates anything in `@AutoConvert`), so existing code keeps its current behaviour.
+
 ---
 
 ### `@ModelTagged` / `@DAOFor`
@@ -334,6 +381,7 @@ Automatically coerces values in the first argument (`data`) of a method to the t
 > - `@AutoConvert` reads the field types from `this` at runtime — the method must be called on an instance that has the metadata
 > - Keys in `data` that do not have a corresponding `@Field()` are left untouched
 > - `null` / `undefined` values are always passed through as `null` (no conversion attempted)
+> - Fields declared as `@Field(Model)` / `@Field([Model])` are instantiated and converted recursively (see [Custom objects / relations](#custom-objects--relations-via-fieldmodel-and-fieldmodel))
 
 ```ts
 import {AutoConvert, Field, InitFields} from "@mateusseiboth/ts-decorators";

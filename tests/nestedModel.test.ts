@@ -39,7 +39,9 @@ describe("NestedModel + collectFieldTypes", () => {
       class FakeNested {}
       const metadata: Record<string, any> = {};
       NestedModel(FakeNested)(undefined, fakeFieldContext("child", metadata));
-      expect(metadata.__nested.child).toBe(FakeNested);
+      expect(metadata.__nested.child.model).toBe(FakeNested);
+      expect(metadata.__nested.child.isArray).toBe(false);
+      expect(metadata.__nested.child.autoConvert).toBe(false);
       expect(warnCap.warnings.filter((w) => w.includes("NestedModel")).length).toBe(0);
     });
   });

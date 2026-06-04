@@ -1,16 +1,54 @@
 import "reflect-metadata";
 import {isDecoratorContext, warnLegacy} from "./_proxy";
+import {registerNestedModelLegacy, registerNestedModelMeta} from "./nestedModel";
 
 const CLASS_FIELDS = new WeakMap<object, Record<string, string>>();
+
+/** Tipo aceito pelo @Field. */
+export type FieldType = string | Function | [Function];
+
+/**
+ * Interpreta o argumento de @Field e separa a parte de "tipo primitivo"
+ * (string guardada em CLASS_FIELDS) da parte de "model aninhado".
+ *
+ * - `@Field('number')`        → {typeString: 'number'}
+ * - `@Field(PostModel)`       → {typeString: 'object', nested: {model, isArray:false}}
+ * - `@Field([PostModel])`     → {typeString: 'object', nested: {model, isArray:true}}
+ * - `@Field()`                → {typeString: undefined} (deixa o reflect/any decidir)
+ */
+function resolveFieldType(type: FieldType | undefined): {typeString?: string; nested?: {model: Function; isArray: boolean}} {
+  if (typeof type === "function") {
+    return {typeString: "object", nested: {model: type, isArray: false}};
+  }
+  if (Array.isArray(type)) {
+    const model = type[0];
+    if (typeof model === "function") {
+      return {typeString: "object", nested: {model, isArray: true}};
+    }
+    return {typeString: "object"};
+  }
+  if (typeof type === "string") {
+    return {typeString: type};
+  }
+  return {};
+}
 
 /**
  * @Field - Decorator de propriedade/campo.
  * Suporta legacy e TC39 Stage 3.
  *
  * Legacy: @Field() - tipo detectado via reflect-metadata
- * Novo:   @Field('number') - tipo passado explicitamente (obrigatório)
+ * Novo:   @Field('number') - tipo passado explicitamente
+ *
+ * Models aninhados (relações):
+ *   @Field(PostModel)   - objeto único de outro Model
+ *   @Field([PostModel]) - lista de outro Model
+ * Nesses casos o @AutoConvert instancia/converte o objeto/array aninhado
+ * recursivamente, e o collectFieldTypes expõe os campos (to-one) para o getWhere.
  */
-export function Field(type?: string) {
+export function Field(type?: FieldType) {
+  const {typeString, nested} = resolveFieldType(type);
+
   return function (...args: any[]): any {
     // New TC39 field decorator: (value, context)
     if (args.length === 2 && isDecoratorContext(args[1]) && args[1].kind === "field") {
@@ -18,7 +56,8 @@ export function Field(type?: string) {
       const fieldName = String(context.name);
       const meta = context.metadata as Record<string, any>;
       if (!meta.__fields) meta.__fields = {};
-      meta.__fields[fieldName] = type || "any";
+      meta.__fields[fieldName] = typeString || "any";
+      if (nested) registerNestedModelMeta(meta, fieldName, nested.model, nested.isArray, true);
       return;
     }
 
@@ -30,8 +69,11 @@ export function Field(type?: string) {
       fields = {};
       CLASS_FIELDS.set(target, fields);
     }
-    if (type) {
-      fields[propertyKey as string] = type;
+    if (nested) {
+      fields[propertyKey as string] = typeString || "object";
+      registerNestedModelLegacy(target, propertyKey as string, nested.model, nested.isArray, true);
+    } else if (typeString) {
+      fields[propertyKey as string] = typeString;
     } else {
       const reflectedType = Reflect.getMetadata("design:type", target, propertyKey);
       fields[propertyKey as string] = reflectedType?.name.toLowerCase() || "any";

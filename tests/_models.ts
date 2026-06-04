@@ -92,6 +92,74 @@ export class RuaModel extends BaseModel {
   }
 }
 
+// ───── PostModel (usado como nested via @Field) ─────
+
+@InitFields
+@ModelTagged
+export class PostModel extends BaseModel {
+  static tag = 7780;
+  static nome = "Posts";
+  @Field() id!: string;
+  @Field() title!: string;
+  @Field("number") views!: number;
+  @Field("boolean") published!: boolean;
+
+  constructor(data?: Record<string, any>) {
+    super();
+    if (data) this.setData(data);
+  }
+
+  static getModel() {
+    return new PostModel();
+  }
+}
+
+// ───── ProfileModel (nested to-one via @Field) ─────
+
+@InitFields
+@ModelTagged
+export class ProfileModel extends BaseModel {
+  static tag = 7781;
+  static nome = "Profiles";
+  @Field() id!: string;
+  @Field() bio!: string;
+  @Field("number") followers!: number;
+
+  constructor(data?: Record<string, any>) {
+    super();
+    if (data) this.setData(data);
+  }
+
+  static getModel() {
+    return new ProfileModel();
+  }
+}
+
+// ───── UserModel (objetos customizados via @Field) ─────
+
+@InitFields
+@ModelTagged
+export class UserModel extends BaseModel {
+  static tag = 7782;
+  static nome = "Users";
+  @Field() id!: string;
+  @Field() name!: string;
+  @Field("number") age!: number;
+  // objeto único customizado
+  @Field(ProfileModel) profile?: ProfileModel;
+  // array de objetos customizados
+  @Field([PostModel]) posts?: PostModel[];
+
+  constructor(data?: Record<string, any>) {
+    super();
+    if (data) this.setData(data);
+  }
+
+  static getModel() {
+    return new UserModel();
+  }
+}
+
 // ───── SimpleModel (sem nested, para testes mais simples) ─────
 
 @InitFields
