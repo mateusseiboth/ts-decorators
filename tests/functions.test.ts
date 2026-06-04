@@ -99,8 +99,11 @@ describe("Functions", () => {
         },
       });
       const opts = makePrismaOptions(res);
-      expect(opts.where.AND).toBeDefined();
-      expect(opts.where.AND.length).toBeGreaterThanOrEqual(1);
+      // sem AND prévio no where de entrada, makePrismaOptions inicializa AND como []
+      expect(Array.isArray(opts.where.AND)).toBe(true);
+      expect(opts.where.AND.length).toBe(0);
+      // campos diretos do where de entrada são preservados
+      expect(opts.where.name).toBe("test");
       expect(opts.orderBy).toEqual([{name: "asc"}]);
       expect(opts.skip).toBe(0);
       expect(opts.take).toBe(10);

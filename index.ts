@@ -17,7 +17,7 @@ import {ROUTERS_KEY} from "./src/decorators/router-metadata";
 import {Transactional, TransactionalClass, setTransactionalCompanyFn} from "./src/decorators/transactional";
 import {Validate, WithValidation} from "./src/decorators/validate";
 import {validateRouteFile} from "./src/decorators/validate-route-file";
-import {collectFieldTypes} from "./src/functions/collectFieldsTypes";
+import {collectFieldMeta, collectFieldTypes} from "./src/functions/collectFieldsTypes";
 import {extractAndRemoveByKey} from "./src/functions/extractAndRemoveByKey";
 import {jwtDecode} from "./src/functions/jwt";
 import {makePrismaOptions, removeFromWhere} from "./src/functions/makePrismaOptions";
@@ -53,6 +53,7 @@ export {
   clearAllCache,
   clearLegacyWarnings,
   clearRateLimitStore,
+  collectFieldMeta,
   collectFieldTypes,
   convertBigIntValues,
   createWhereCondition,

@@ -160,6 +160,261 @@ export class UserModel extends BaseModel {
   }
 }
 
+// ─────────────────────────────────────────────────────────────
+// Equivalência @NestedModel × @Field(Model)
+//
+// Dois wrappers apontando para o MESMO model aninhado (BairroModel),
+// um declarado via @NestedModel e outro via @Field(Model). O getWhere
+// precisa produzir EXATAMENTE o mesmo output para ambos — provando que a
+// nova forma (@Field) não altera a montagem do where.
+// ─────────────────────────────────────────────────────────────
+
+@InitFields
+@ModelTagged
+export class WrapperNestedModel extends BaseModel {
+  static tag = 7790;
+  static nome = "WrapperNested";
+  @Field() id!: string;
+  @Field() name!: string;
+  @Field() @NestedModel(BairroModel) bairro?: any;
+
+  constructor(data?: Record<string, any>) {
+    super();
+    if (data) this.setData(data);
+  }
+
+  static getModel() {
+    return new WrapperNestedModel();
+  }
+}
+
+@InitFields
+@ModelTagged
+export class WrapperFieldModel extends BaseModel {
+  static tag = 7791;
+  static nome = "WrapperField";
+  @Field() id!: string;
+  @Field() name!: string;
+  @Field(BairroModel) bairro?: BairroModel;
+
+  constructor(data?: Record<string, any>) {
+    super();
+    if (data) this.setData(data);
+  }
+
+  static getModel() {
+    return new WrapperFieldModel();
+  }
+}
+
+// ─────────────────────────────────────────────────────────────
+// Aninhamento profundo (multi-nível) — cadeias paralelas
+//
+// CountryModel é a folha compartilhada. As cadeias City → State → Country
+// são declaradas em duas formas (via @Field e via @NestedModel) usando os
+// mesmos nomes de campo, de modo que `state.country.name` resolva igual nas
+// duas e o getWhere produza o mesmo where aninhado em 3 níveis.
+// ─────────────────────────────────────────────────────────────
+
+@InitFields
+@ModelTagged
+export class CountryModel extends BaseModel {
+  static tag = 7792;
+  static nome = "Countries";
+  @Field() id!: string;
+  @Field() name!: string;
+  @Field("number") population!: number;
+
+  constructor(data?: Record<string, any>) {
+    super();
+    if (data) this.setData(data);
+  }
+
+  static getModel() {
+    return new CountryModel();
+  }
+}
+
+// Cadeia via @Field(Model)
+@InitFields
+@ModelTagged
+export class StateFieldModel extends BaseModel {
+  static tag = 7793;
+  static nome = "StatesField";
+  @Field() id!: string;
+  @Field() name!: string;
+  @Field(CountryModel) country?: CountryModel;
+
+  constructor(data?: Record<string, any>) {
+    super();
+    if (data) this.setData(data);
+  }
+
+  static getModel() {
+    return new StateFieldModel();
+  }
+}
+
+@InitFields
+@ModelTagged
+export class CityFieldModel extends BaseModel {
+  static tag = 7794;
+  static nome = "CitiesField";
+  @Field() id!: string;
+  @Field() name!: string;
+  @Field(StateFieldModel) state?: StateFieldModel;
+
+  constructor(data?: Record<string, any>) {
+    super();
+    if (data) this.setData(data);
+  }
+
+  static getModel() {
+    return new CityFieldModel();
+  }
+}
+
+// Cadeia paralela via @NestedModel
+@InitFields
+@ModelTagged
+export class StateNestedModel extends BaseModel {
+  static tag = 7795;
+  static nome = "StatesNested";
+  @Field() id!: string;
+  @Field() name!: string;
+  @Field() @NestedModel(CountryModel) country?: any;
+
+  constructor(data?: Record<string, any>) {
+    super();
+    if (data) this.setData(data);
+  }
+
+  static getModel() {
+    return new StateNestedModel();
+  }
+}
+
+@InitFields
+@ModelTagged
+export class CityNestedModel extends BaseModel {
+  static tag = 7796;
+  static nome = "CitiesNested";
+  @Field() id!: string;
+  @Field() name!: string;
+  @Field() @NestedModel(StateNestedModel) state?: any;
+
+  constructor(data?: Record<string, any>) {
+    super();
+    if (data) this.setData(data);
+  }
+
+  static getModel() {
+    return new CityNestedModel();
+  }
+}
+
+// ─────────────────────────────────────────────────────────────
+// Listas aninhadas (to-many) para validar o `some` no getWhere.
+//
+// - to-one que contém uma lista:   BlogModel.author (to-one) -> author.posts (lista)
+// - lista que contém outra lista:  FeedModel.articles (lista) -> articles.tags (lista)
+// ─────────────────────────────────────────────────────────────
+
+@InitFields
+@ModelTagged
+export class AuthorModel extends BaseModel {
+  static tag = 7797;
+  static nome = "Authors";
+  @Field() id!: string;
+  @Field() name!: string;
+  // lista dentro de um objeto to-one
+  @Field([PostModel]) posts?: PostModel[];
+
+  constructor(data?: Record<string, any>) {
+    super();
+    if (data) this.setData(data);
+  }
+
+  static getModel() {
+    return new AuthorModel();
+  }
+}
+
+@InitFields
+@ModelTagged
+export class BlogModel extends BaseModel {
+  static tag = 7798;
+  static nome = "Blogs";
+  @Field() id!: string;
+  @Field() title!: string;
+  @Field(AuthorModel) author?: AuthorModel;
+
+  constructor(data?: Record<string, any>) {
+    super();
+    if (data) this.setData(data);
+  }
+
+  static getModel() {
+    return new BlogModel();
+  }
+}
+
+@InitFields
+@ModelTagged
+export class TagModel extends BaseModel {
+  static tag = 7799;
+  static nome = "Tags";
+  @Field() id!: string;
+  @Field() label!: string;
+
+  constructor(data?: Record<string, any>) {
+    super();
+    if (data) this.setData(data);
+  }
+
+  static getModel() {
+    return new TagModel();
+  }
+}
+
+@InitFields
+@ModelTagged
+export class ArticleModel extends BaseModel {
+  static tag = 7800;
+  static nome = "Articles";
+  @Field() id!: string;
+  @Field() title!: string;
+  @Field([TagModel]) tags?: TagModel[];
+
+  constructor(data?: Record<string, any>) {
+    super();
+    if (data) this.setData(data);
+  }
+
+  static getModel() {
+    return new ArticleModel();
+  }
+}
+
+@InitFields
+@ModelTagged
+export class FeedModel extends BaseModel {
+  static tag = 7801;
+  static nome = "Feeds";
+  @Field() id!: string;
+  // lista que contém outra lista
+  @Field([ArticleModel]) articles?: ArticleModel[];
+
+  constructor(data?: Record<string, any>) {
+    super();
+    if (data) this.setData(data);
+  }
+
+  static getModel() {
+    return new FeedModel();
+  }
+}
+
 // ───── SimpleModel (sem nested, para testes mais simples) ─────
 
 @InitFields
