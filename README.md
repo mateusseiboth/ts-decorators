@@ -74,6 +74,13 @@ collectFieldTypes → uses getFieldTypes + getNestedModel recursively
   - [@logDecorator](#logdecorator)
   - [@Transactional / @TransactionalClass](#transactional--transactionalclass)
   - [@Validate / @WithValidation](#validate--withvalidation)
+  - [@Singleton / @Scoped / @Transient](#lifecycle--di--singleton--scoped--transient)
+  - [@MaskSensitive / applyMask](#masksensitive--applymask)
+  - [@RequiresRole](#requiresrole)
+  - [@Emit / @Listen + eventBus](#emit--listen--eventbus)
+  - [@Mutex / @Semaphore](#mutex--semaphore)
+  - [@Cron](#cron)
+  - [@Queue / @Processor + adapters](#queue--processor--adapters)
 - [Utility Functions](#utility-functions)
 - [Contributing](#contributing)
 
@@ -626,6 +633,160 @@ class CreateOrderController {
 ```
 
 `@WithValidation` (class decorator) wraps the constructor: before `super()` is invoked, it calls `schema.parse(args[index])` for each parameter decorated with `@Validate`. A `ZodError` is thrown immediately on the first failing validation.
+
+---
+
+### Lifecycle / DI — `@Singleton` / `@Scoped` / `@Transient`
+
+Define o ciclo de vida da instância resolvida pelo `container`.
+
+```ts
+import { Singleton, Scoped, Transient, container } from "@mateusseiboth/ts-decorators";
+
+@Singleton()          // uma instância por processo (default)
+class ConfigService {}
+
+@Scoped()             // uma instância por chave de escopo (ex.: por request)
+class RequestContext {}
+
+@Transient()          // instância nova a cada container.get()
+class Report {}
+
+// Definir como a chave de escopo é resolvida (ex.: requestId do AsyncLocalStorage):
+container.setScopeResolver(() => getContext()?.requestId ?? "global");
+container.clearScope(requestId); // descarta o cache ao finalizar a request
+```
+
+---
+
+### `@MaskSensitive` / `applyMask`
+
+Marca campos sensíveis e mascara seus valores em respostas/logs.
+
+```ts
+import { MaskSensitive, applyMask } from "@mateusseiboth/ts-decorators";
+
+class User {
+  name = "";
+  @MaskSensitive() password = "";          // "******"
+  @MaskSensitive({ visible: 4 }) cpf = ""; // "*******8901"
+}
+
+// Em método: mascara o objeto retornado com base nos campos marcados na classe.
+class UserController {
+  @MaskSensitive() password = "";
+  @MaskSensitive()
+  async getById(req, res) { return { password: "secret", name: "Ana" }; }
+}
+
+// Ou diretamente (ex.: ao logar):
+logger.info(applyMask(user, User));
+```
+
+---
+
+### `@RequiresRole`
+
+Autorização por papel em métodos de Controller `(req, res)`. Responde **403** quando o papel falta.
+
+```ts
+import { RequiresRole } from "@mateusseiboth/ts-decorators";
+
+class OrderController {
+  @RequiresRole("admin")
+  async remove(req, res) { ... }
+
+  @RequiresRole(["admin", "fiscal"], { rolesExtractor: (req, res) => res.locals.user.roles })
+  async aprovar(req, res) { ... }
+}
+```
+
+---
+
+### `@Emit` / `@Listen` + `eventBus`
+
+Publica/assina eventos no barramento singleton (`eventBus`).
+
+```ts
+import { Emit, Listen, eventBus, container } from "@mateusseiboth/ts-decorators";
+
+class ReportService {
+  @Emit("report.requested")          // emite { result, args, instance } após resolver
+  async enqueue(job) { return job; }
+}
+
+class ReportWorker {
+  @Listen("report.requested")        // assina quando a instância é criada
+  async onRequested({ result }) { ... }
+}
+
+// TC39: assina automaticamente. Legacy: resolva via container.get (auto) ou chame initListeners(instance).
+container.get(ReportWorker);
+```
+
+---
+
+### `@Mutex` / `@Semaphore`
+
+Controle de concorrência em métodos.
+
+```ts
+import { Mutex, Semaphore } from "@mateusseiboth/ts-decorators";
+
+class Account {
+  @Mutex()                       // uma execução por vez (por instância+método)
+  async atualizarSaldo() { ... }
+}
+
+class ReportManager {
+  @Semaphore({ limit: 3 })       // no máx. 3 execuções simultâneas (global por método)
+  async gerar(job) { ... }
+}
+```
+
+As primitivas isoladas também são exportadas: `MutexLock` e `SemaphoreLock`.
+
+---
+
+### `@Cron`
+
+Agenda a execução periódica de um método (intervalo em ms ou expressão cron de 5 campos).
+
+```ts
+import { Cron, startCronJobs, container } from "@mateusseiboth/ts-decorators";
+
+class Jobs {
+  @Cron("*/5 * * * *")  async limparExpirados() { ... } // a cada 5 min
+  @Cron(60_000)         async heartbeat() { ... }       // a cada 60s
+}
+
+// TC39: agenda automaticamente. Legacy: resolva via container.get (auto) ou chame startCronJobs(instance).
+container.get(Jobs);
+```
+
+---
+
+### `@Queue` / `@Processor` + adapters
+
+`@Queue` declara uma fila nomeada sobre um **adapter** com interface comum
+(`findMany / findUnique / create / update / delete`). `@Processor` consome essa fila pelo nome.
+
+```ts
+import { Queue, Processor, SqliteQueueAdapter, InMemoryQueueAdapter } from "@mateusseiboth/ts-decorators";
+
+@Queue({ name: "reports", adapter: new SqliteQueueAdapter("data/q.db", "reports") })
+class ReportQueue {}   // ganha o método enqueue(payload)
+
+class ReportProcessor {
+  @Processor("reports", { concurrency: 3, pollMs: 1000 })
+  async handle(payload) { ... } // chamado para cada job pendente
+}
+
+await (container.get(ReportQueue) as any).enqueue({ id: 1 });
+```
+
+Adapters inclusos: `InMemoryQueueAdapter` e `SqliteQueueAdapter`. Qualquer objeto que
+implemente a interface `QueueAdapter` (Redis, etc.) funciona.
 
 ---
 

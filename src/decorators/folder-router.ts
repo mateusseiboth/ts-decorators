@@ -1,7 +1,8 @@
 import fs from "fs/promises";
 import path from "path";
 
-import { Express, RequestHandler, Router } from "express";
+import { Router } from "express";
+import type { Express, RequestHandler } from "express";
 
 import { validateRouteFile } from "./validate-route-file";
 

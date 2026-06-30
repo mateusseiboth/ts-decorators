@@ -1,4 +1,5 @@
-import {RequestHandler, Router} from "express";
+import {Router} from "express";
+import type {RequestHandler} from "express";
 import {getOrderBy} from "../middlwares/getOrderBy";
 import {getPaginate} from "../middlwares/getPaginate";
 import {getWhere} from "../middlwares/getWhere";
