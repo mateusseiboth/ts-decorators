@@ -1,6 +1,6 @@
 import "reflect-metadata";
 
-import { RequestHandler } from "express";
+import type { RequestHandler } from "express";
 
 import { ROUTERS_KEY } from "./router-metadata";
 

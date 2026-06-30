@@ -29,6 +29,31 @@ import {getOrderBy} from "./src/middlwares/getOrderBy";
 import {getPaginate} from "./src/middlwares/getPaginate";
 import {buildWhereFromQuery, createWhereCondition, createWhereConditionQuery, getWhere} from "./src/middlwares/getWhere";
 import {idempotencyMiddleware as Idempotent} from "./src/middlwares/idempotent";
+import {Singleton, Scoped, Transient, type DiScope} from "./src/decorators/lifecycle";
+import {MaskSensitive, applyMask, type MaskOptions} from "./src/decorators/maskSensitive";
+import {RequiresRole, type RequiresRoleOptions} from "./src/decorators/requiresRole";
+import {Emit} from "./src/decorators/emit";
+import {Listen, initListeners} from "./src/decorators/listen";
+import {Mutex} from "./src/decorators/mutex";
+import {Semaphore as SemaphoreDecorator, clearSemaphores} from "./src/decorators/semaphore";
+import {Cron, cronMatches, startCronJobs, stopAllCronJobs} from "./src/decorators/cron";
+import {Queue, type QueueOptions} from "./src/decorators/queue";
+import {Processor, initProcessors, type ProcessorOptions} from "./src/decorators/processor";
+import {eventBus, EventBus, type EventHandler} from "./src/events/eventBus";
+import {Mutex as MutexLock} from "./src/concurrency/Mutex";
+import {Semaphore as SemaphoreLock} from "./src/concurrency/Semaphore";
+import {InMemoryQueueAdapter} from "./src/queue/InMemoryQueueAdapter";
+import {SqliteQueueAdapter} from "./src/queue/SqliteQueueAdapter";
+import {
+  clearQueues,
+  enqueue,
+  getQueueAdapter,
+  registerProcessor,
+  registerQueue,
+  startProcessors,
+  stopProcessors,
+} from "./src/queue/registry";
+import type {QueueAdapter, QueueJob} from "./src/queue/adapter";
 import {Audit} from "./src/handlers/Audit";
 import {Transactional as TransactionalHandler} from "./src/handlers/Transactional";
 import {compose} from "./src/handlers/compose";
@@ -38,6 +63,48 @@ import {getHandlerContext, requireHandlerContext, setHandlerContext, type Handle
 import {AuditLogger, type AuditEntry as HttpAuditEntry} from "./src/storage/AuditLogger";
 
 export {
+  // --- Novos decorators ---
+  Singleton,
+  Scoped,
+  Transient,
+  MaskSensitive,
+  applyMask,
+  RequiresRole,
+  Emit,
+  Listen,
+  initListeners,
+  Mutex,
+  SemaphoreDecorator as Semaphore,
+  clearSemaphores,
+  Cron,
+  cronMatches,
+  startCronJobs,
+  stopAllCronJobs,
+  Queue,
+  Processor,
+  initProcessors,
+  // --- Infra (eventos / concorrência / filas) ---
+  eventBus,
+  EventBus,
+  MutexLock,
+  SemaphoreLock,
+  InMemoryQueueAdapter,
+  SqliteQueueAdapter,
+  enqueue,
+  getQueueAdapter,
+  registerProcessor,
+  registerQueue,
+  startProcessors,
+  stopProcessors,
+  clearQueues,
+  type DiScope,
+  type MaskOptions,
+  type RequiresRoleOptions,
+  type QueueOptions,
+  type ProcessorOptions,
+  type EventHandler,
+  type QueueAdapter,
+  type QueueJob,
   Audit,
   AuditLogger,
   Auditable,
