@@ -15,6 +15,33 @@ import {NestedModel, getNestedModel, getNestedModelMeta} from "./src/decorators/
 import {RateLimit, RateLimitMethod, clearRateLimitStore, rateLimitMiddleware} from "./src/decorators/rateLimit";
 import {RegistryRouter} from "./src/decorators/registry-router";
 import {RouteBuilder} from "./src/decorators/router-builder";
+import {
+  All,
+  Delete,
+  Get,
+  Head,
+  HTTP_ROUTES_KEY,
+  Options,
+  Patch,
+  Post,
+  Put,
+  applyControllerRoutes,
+  getControllerRoutes,
+  type ApplyControllerRoutesConfig,
+  type HttpMethod,
+  type RouteDefinition,
+  type RouteOptions,
+  type RouteWrapper,
+} from "./src/decorators/http-methods";
+import {
+  REST_CONFIG_KEY,
+  REST_PRESET,
+  Rest,
+  getRestRoutes,
+  type RestAction,
+  type RestConfig,
+  type RestOverride,
+} from "./src/decorators/rest";
 import {ROUTERS_KEY} from "./src/decorators/router-metadata";
 import {Transactional, TransactionalClass, setTransactionalCompanyFn} from "./src/decorators/transactional";
 import {Validate, WithValidation, type IWithValidation} from "./src/decorators/validate";
@@ -125,6 +152,31 @@ export {
   RateLimitMethod,
   RegistryRouter,
   RouteBuilder,
+  // --- Rotas estilo NestJS (@Get, @Post, ...) ---
+  Get,
+  Post,
+  Put,
+  Patch,
+  Delete,
+  Options,
+  Head,
+  All,
+  HTTP_ROUTES_KEY,
+  applyControllerRoutes,
+  getControllerRoutes,
+  type ApplyControllerRoutesConfig,
+  type HttpMethod,
+  type RouteDefinition,
+  type RouteOptions,
+  type RouteWrapper,
+  // --- CRUD declarativo (@Rest) ---
+  Rest,
+  REST_PRESET,
+  REST_CONFIG_KEY,
+  getRestRoutes,
+  type RestAction,
+  type RestConfig,
+  type RestOverride,
   Transactional,
   TransactionalClass,
   TransactionalHandler,

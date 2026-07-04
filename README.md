@@ -81,6 +81,11 @@ collectFieldTypes → uses getFieldTypes + getNestedModel recursively
   - [@Mutex / @Semaphore](#mutex--semaphore)
   - [@Cron](#cron)
   - [@Queue / @Processor + adapters](#queue--processor--adapters)
+- [HTTP Routing](#http-routing)
+  - [RouteBuilder](#routebuilder)
+  - [@Get / @Post / @Put / ... (rotas estilo NestJS)](#get--post--put---rotas-estilo-nestjs)
+  - [@Rest — CRUD declarativo](#rest--crud-declarativo)
+  - [Ligando tudo no BaseRegistry](#ligando-tudo-no-baseregistry)
 - [Utility Functions](#utility-functions)
 - [Contributing](#contributing)
 
@@ -787,6 +792,170 @@ await (container.get(ReportQueue) as any).enqueue({ id: 1 });
 
 Adapters inclusos: `InMemoryQueueAdapter` e `SqliteQueueAdapter`. Qualquer objeto que
 implemente a interface `QueueAdapter` (Redis, etc.) funciona.
+
+---
+
+## HTTP Routing
+
+Camada de rotas sobre o Express. O fluxo base (`@GlobalRouter` → `folderRouter` →
+`registry(router)` → `RouteBuilder`) continua igual; estes helpers deixam você
+**declarar** as rotas em vez de escrevê-las na mão em cada `Registry`.
+
+### `RouteBuilder`
+
+Envolve um `Router` do Express aplicando um conjunto de middlewares padrão a cada
+rota registrada. `extend()` cria um novo builder com middlewares adicionais — a base
+para variantes como "com paginação" ou "com permissões".
+
+```ts
+import {RouteBuilder} from "@mateusseiboth/ts-decorators";
+
+const route = new RouteBuilder(router);
+route.get("/:id", handler);              // aplica os middlewares padrão + handler
+const paginated = route.withPrismaOptions(Model); // novo builder: getOrderBy + getWhere + getPaginate
+```
+
+Você pode estender a classe para adicionar composições próprias (auth, permissões, etc.):
+
+```ts
+export class ExtendedRouterBuilder extends RouteBuilder {
+  withAuthAndPermissions(model: {tag: number}): ExtendedRouterBuilder {
+    return this.extend([(req, res, next) => checkPermissions(req, res, next, model)]) as ExtendedRouterBuilder;
+  }
+}
+```
+
+### `@Get` / `@Post` / `@Put` / ... (rotas estilo NestJS)
+
+Decoram **métodos do controller** com verbo HTTP + path (com params, ex.: `@Get(":id/carne")`).
+A metadata é lida depois por `applyControllerRoutes`, que registra cada rota no
+`RouteBuilder` apropriado. Verbos disponíveis: `@Get`, `@Post`, `@Put`, `@Patch`,
+`@Delete`, `@Options`, `@Head`, `@All`.
+
+```ts
+import {Get, Post, Put, Delete} from "@mateusseiboth/ts-decorators";
+
+@Injectable()
+export class LoteController extends BaseController {
+  @Get("/", {use: "routeWithPaginate", action: "LIST"})
+  async get(req, res, next) { ... }
+
+  @Post("/", {use: "routeWithExtraInfo", action: "CREATE"})
+  async create(req, res, next) { ... }
+
+  @Put("/:id", {action: "UPDATE"})
+  async update(req, res, next) { ... }
+
+  @Delete("/:id", {use: "routeWithIdempotency", action: "DELETE"})
+  async deleteById(req, res, next) { ... }
+
+  @Get("/:id/carne", {action: "GET"})
+  async getById(req, res, next) { ... }
+}
+```
+
+Cada decorator aceita `(path?, options?)`. As `options`:
+
+| Campo   | Efeito                                                                                                        |
+| ------- | ----------------------------------------------------------------------------------------------------------- |
+| `use`   | Nome da propriedade `RouteBuilder` no registry (`route`, `routeWithPaginate`, ...). Default `route`          |
+| `build` | `(builder, def) => builder` — transforma o builder **só nesta rota** (ex.: `b => b.withPrismaOptions(Model)`) |
+| _resto_ | Metadata livre repassada ao `wrap` (ex.: `action` para auditoria)                                            |
+
+### `@Rest` — CRUD declarativo
+
+Decorator de **classe** no `Registry` que semeia o CRUD padrão sem escrever cada
+rota. Reproduz a convenção do `BaseRegistry`:
+
+| Ação     | Verbo  | Path   | Controller     | `use`                   | `action` |
+| -------- | ------ | ------ | -------------- | ----------------------- | -------- |
+| `list`   | GET    | `/`    | `get`          | `routeWithPaginate`     | `LIST`   |
+| `get`    | GET    | `/:id` | `getById`      | `route`                 | `GET`    |
+| `create` | POST   | `/`    | `create`       | `routeWithExtraInfo`    | `CREATE` |
+| `update` | PUT    | `/:id` | `update`       | `routeWithExtraInfo`    | `UPDATE` |
+| `delete` | DELETE | `/:id` | `deleteById`   | `routeWithIdempotency`  | `DELETE` |
+
+```ts
+import {Rest} from "@mateusseiboth/ts-decorators";
+
+@Injectable()
+@Rest() // gera as 5 rotas acima
+export class Registry extends BaseRegistry {
+  constructor(protected readonly controller: LoteController) {
+    super(controller);
+  }
+}
+```
+
+Ajuste o preset com `only` / `except` / `overrides`:
+
+```ts
+@Rest({
+  except: ["delete"],                                        // não gera DELETE
+  overrides: {
+    list: {path: "/todos", use: "routeWithPaginate"},        // muda path/builder
+    get:  {options: {build: (b) => b.withPrismaOptions(Model)}}, // builder custom pontual
+  },
+})
+```
+
+- Ações cujo **handler não existe** no controller são ignoradas com um aviso.
+- `getRestRoutes(RegistryClass)` devolve as `RouteDefinition[]` resolvidas (mesmo formato de `@Get`).
+- `REST_PRESET` é a tabela padrão exportada, caso queira inspecioná-la/reusá-la.
+
+### Ligando tudo no BaseRegistry
+
+`applyControllerRoutes` lê as rotas (do `@Rest` e/ou dos `@Get`/`@Post`) e as registra,
+substituindo o `declareRoutes()` manual. Escreva **uma vez** no seu `BaseRegistry`:
+
+```ts
+import {
+  applyControllerRoutes,
+  getRestRoutes,
+  getControllerRoutes,
+  RouteBuilder,
+} from "@mateusseiboth/ts-decorators";
+
+declareRoutes() {
+  applyControllerRoutes({
+    controller: this.controller,
+    // @Rest do registry  +  rotas custom (@Get/@Post) do controller
+    routes: [...getRestRoutes(this), ...getControllerRoutes(this.controller)],
+    // resolve `use` para as propriedades montadas no configure()
+    resolveBuilder: (use) => (use ? (this as any)[use] : this.route) as RouteBuilder,
+    // wrapper padrão: transação + try/catch + auditoria por action
+    wrap: (def, invoke) =>
+      withTransaction(
+        async (req, res, next) => {
+          try {
+            await invoke(req, res, next);
+          } catch (err) {
+            next(err);
+          }
+        },
+        {action: def.options.action},
+      ),
+  });
+}
+```
+
+O `configure()` de cada `Registry` continua sendo o lugar onde você monta os builders
+(inclusive um `ExtendedRouterBuilder` com métodos custom); o `use` só referencia o nome
+da propriedade:
+
+```ts
+configure(router: Router) {
+  this.routeBase = new ExtendedRouterBuilder(router);
+  this.route = this.routeBase.withAuthAndPermissions(LoteModel);
+  this.routeWithExtraInfo = this.route;
+  this.routeWithPaginate = this.route.withPrismaOptions(LoteModel);
+  this.routeWithIdempotency = this.route;
+}
+```
+
+`applyControllerRoutes` também pode ser usado sem `routes` — nesse caso lê apenas as
+rotas decoradas no próprio controller. Se `wrap` for omitido, o método do controller é
+chamado diretamente.
 
 ---
 
