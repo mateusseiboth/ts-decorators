@@ -1,22 +1,63 @@
 import fs from "fs/promises";
 import path from "path";
 
-import { Router } from "express";
-import type { Express, RequestHandler } from "express";
+import type {Express, RequestHandler} from "express";
+import {Router} from "express";
 
-import { validateRouteFile } from "./validate-route-file";
+import {validateRouteFile} from "./validate-route-file";
+
+export const AllRouters: Record<string, any> = {};
 
 type FolderRouterOptions = {
   middlewares?: RequestHandler[];
   prefix?: string;
 };
 
-export async function folderRouter(
-  app: Express,
-  baseFolder: string,
-  options?: FolderRouterOptions,
-) {
+const log = {
+  start(baseFolder: string, prefix?: string) {
+    console.log(`
+┌──────────────────────────────────────────────────────────────┐
+│ 🚀 Route Scanner                                             │
+├──────────────────────────────────────────────────────────────┤
+│ Base   │ ${baseFolder}
+│ Prefix │ ${prefix || "/"}
+└──────────────────────────────────────────────────────────────┘`);
+  },
+
+  file(file: string) {
+    console.log(`🔍 ${file}`);
+  },
+
+  skip(reason: string) {
+    console.log(`   └─ ⏭️  ${reason}`);
+  },
+
+  mounted({
+    path,
+    file,
+    globalMiddlewares,
+    routeMiddlewares,
+  }: {
+    path: string;
+    file: string;
+    globalMiddlewares: number;
+    routeMiddlewares: number;
+  }) {
+    console.log(`   ├─ ✅ Mounted
+   │  URL         : ${path}
+   │  File        : ${file}
+   │  Middlewares : ${globalMiddlewares} global + ${routeMiddlewares} local`);
+  },
+
+  finish() {
+    console.log("\n✨ Route scan completed.\n");
+  },
+};
+
+export async function folderRouter(app: Express, baseFolder: string, options?: FolderRouterOptions) {
   const globalMiddlewares = options?.middlewares || [];
+
+  log.start(baseFolder, options?.prefix);
 
   async function scan(currentDir: string) {
     const entries = await fs.readdir(currentDir, {
@@ -28,49 +69,59 @@ export async function folderRouter(
 
       if (entry.isDirectory()) {
         await scan(fullPath);
-
         continue;
       }
 
+      log.file(fullPath);
+
       const isIndexFile = entry.name === "index.ts" || entry.name === "index.js";
-      console.log(`Found file: ${fullPath}, isIndexFile: ${isIndexFile}`);
+
       if (!isIndexFile) {
+        log.skip("Not an index file");
         continue;
       }
 
       const isValid = await validateRouteFile(fullPath);
-      console.log(`Validation result for ${fullPath}: ${isValid}`);
+
       if (!isValid) {
+        log.skip("No registry() export found");
         continue;
       }
 
       const imported = await import(fullPath);
 
       if (typeof imported.registry !== "function") {
+        log.skip("registry is not a function");
         continue;
       }
-      console.log(`Registering route from file: ${fullPath}`);
+
       const relativeDir = path.relative(baseFolder, currentDir);
 
-      console.log("Found prefix:", options?.prefix);
-      const routePath =
-        (options?.prefix ? options.prefix : "") +
-        "/" +
-        relativeDir.split(path.sep).filter(Boolean).join("/");
-      console.log(`Computed route path for ${fullPath}: ${routePath}`);
+      const routePath = (options?.prefix ?? "") + "/" + relativeDir.split(path.sep).filter(Boolean).join("/");
+
       const router = Router();
 
       const routeMiddlewares = imported.middlewares || [];
-      console.log(
-        `Applying middlewares for ${routePath}: ${routeMiddlewares.length} middlewares found`,
-      );
+
       app.use(routePath, ...globalMiddlewares, ...routeMiddlewares, router);
 
       await imported.registry(router);
-
-      console.log(`[ROUTE] ${routePath}`);
+      AllRouters[routePath] = {
+        path: routePath,
+        file: fullPath,
+        globalMiddlewares: globalMiddlewares.length,
+        routeMiddlewares: routeMiddlewares.length,
+      };
+      log.mounted({
+        path: routePath,
+        file: fullPath,
+        globalMiddlewares: globalMiddlewares.length,
+        routeMiddlewares: routeMiddlewares.length,
+      });
     }
   }
 
   await scan(baseFolder);
+
+  log.finish();
 }
