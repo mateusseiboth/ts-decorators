@@ -25,11 +25,20 @@ export interface ProcessorOptions {
   concurrency?: number;
   /** Intervalo de poll do adapter em ms. Default: 1000. */
   pollMs?: number;
+  /**
+   * Extrai a chave de serialização do payload. Jobs com a MESMA chave nunca rodam
+   * em paralelo (no máx. 1 em voo); um 2º job da mesma chave fica "pending" e não
+   * ocupa vaga. Ex.: `keyOf: (p) => p.ctx.entCodigo` serializa por entidade.
+   */
+  keyOf?: (payload: any) => string | number | undefined;
 }
 
-interface ProcessorMeta extends Required<ProcessorOptions> {
+interface ProcessorMeta {
   queueName: string;
   methodName: string;
+  concurrency: number;
+  pollMs: number;
+  keyOf?: (payload: any) => string | number | undefined;
 }
 
 function register(instance: any, meta: ProcessorMeta): void {
@@ -37,6 +46,7 @@ function register(instance: any, meta: ProcessorMeta): void {
     handler: (payload: any) => instance[meta.methodName](payload),
     concurrency: meta.concurrency,
     pollMs: meta.pollMs,
+    keyOf: meta.keyOf,
   });
 }
 
@@ -52,6 +62,7 @@ export function initProcessors(instance: any): void {
 export function Processor(queueName: string, options?: ProcessorOptions) {
   const concurrency = Math.max(1, options?.concurrency ?? 1);
   const pollMs = options?.pollMs ?? 1000;
+  const keyOf = options?.keyOf;
 
   return function (...args: any[]): any {
     // TC39 Stage 3: (method, context)
@@ -60,7 +71,7 @@ export function Processor(queueName: string, options?: ProcessorOptions) {
       const context = args[1] as ClassMethodDecoratorContext;
       const methodName = String(context.name);
       context.addInitializer(function (this: any) {
-        register(this, {queueName, methodName, concurrency, pollMs});
+        register(this, {queueName, methodName, concurrency, pollMs, keyOf});
         startProcessors();
       });
       return original;
@@ -71,7 +82,7 @@ export function Processor(queueName: string, options?: ProcessorOptions) {
     const target = args[0];
     const propertyKey = args[1] as string;
     const list: ProcessorMeta[] = Reflect.getMetadata(PROCESSOR_KEY, target.constructor) ?? [];
-    list.push({queueName, methodName: propertyKey, concurrency, pollMs});
+    list.push({queueName, methodName: propertyKey, concurrency, pollMs, keyOf});
     Reflect.defineMetadata(PROCESSOR_KEY, list, target.constructor);
     return args[2];
   };

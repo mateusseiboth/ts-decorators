@@ -38,6 +38,18 @@ export class Semaphore {
     return acquired.then(() => this.makeRelease());
   }
 
+  /**
+   * Tenta adquirir uma vaga SEM aguardar. Retorna a função de liberação se havia
+   * vaga livre, ou `null` se o limite já está saturado. Útil para despacho com
+   * capacidade exata (ex.: o drain da fila só marca um job como "processing"
+   * quando há slot de fato disponível).
+   */
+  tryAcquire(): (() => void) | null {
+    if (this.available <= 0) return null;
+    this.available--;
+    return this.makeRelease();
+  }
+
   private makeRelease(): () => void {
     let released = false;
     return () => {

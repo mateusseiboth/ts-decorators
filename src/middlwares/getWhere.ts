@@ -29,7 +29,7 @@ function expandRanges(rawValues: string[], isNumeric: boolean, typePrefix?: stri
     // só expande range se for numérico
     if (isNumeric && cleanVal.includes("-")) {
       const [start, end] = cleanVal.split("-").map(Number);
-      //@ts-expect-error dynamic loop
+      //@ts-ignore dynamic loop
       for (let i = start; i <= end; i++) {
         expanded.push(type ? `${type}:${isNegative ? "!" : ""}${i}` : `${isNegative ? "!" : ""}${i}`);
       }
