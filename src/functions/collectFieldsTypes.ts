@@ -41,7 +41,7 @@ export function collectFieldMeta(instance: any, prefix = "", ancestors: Set<any>
 
     for (const key in fields) {
         const path = `${prefix}${key}`;
-        //@ts-expect-error dynamic key, possible injection
+        //@ts-ignore dynamic key, possible injection
         types[path] = fields[key];
 
         const nestedMeta = getNestedModelMeta(instance, key);
