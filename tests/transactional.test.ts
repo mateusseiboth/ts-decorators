@@ -1,6 +1,7 @@
 import {afterEach, beforeEach, describe, expect, test} from "bun:test";
 import {clearLegacyWarnings} from "../src/decorators/_proxy";
 import {TransactionalClass, setTransactionalCompanyFn} from "../src/decorators/transactional";
+import {getCompanyIdInjector} from "../src/handlers/companyId";
 import {captureLogs, captureWarnings, fakeClassContext} from "./_helpers";
 
 describe("TransactionalClass", () => {
@@ -125,6 +126,15 @@ describe("TransactionalClass", () => {
       });
       // Apenas verifica que não dá erro ao setar
       expect(called).toBe(false);
+    });
+
+    test("não altera a estratégia global de company id", async () => {
+      const tx = mockTx();
+      setTransactionalCompanyFn(async (t: any) => {
+        await t.$executeRawUnsafe("LEGACY");
+      });
+      await getCompanyIdInjector()(tx, "10");
+      expect(tx.calls).toEqual(['SET LOCAL "my.company_id" = 10']);
     });
   });
 });

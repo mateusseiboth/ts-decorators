@@ -27,6 +27,7 @@
  */
 
 import type {NextFunction, Request, Response} from "express";
+import type {CompanyIdInjector} from "../handlers/companyId";
 import {isDecoratorContext, warnLegacy} from "./_proxy";
 
 type PrismaLike = {
@@ -35,7 +36,8 @@ type PrismaLike = {
 
 type AddCompanyFn = (tx: any, entity: string) => Promise<void>;
 
-// Configuração global
+// Configuração global deste middleware. Opt-in: sem chamar `setTransactionalCompanyFn`
+// nada é injetado na transação.
 let _addCompanyFn: AddCompanyFn | null = null;
 
 export function setTransactionalCompanyFn(fn: AddCompanyFn) {
@@ -46,13 +48,17 @@ export function setTransactionalCompanyFn(fn: AddCompanyFn) {
  * Middleware factory: cria uma transação e injeta em res.locals.tx.
  * Uso: router.post("/", Transactional(prismaClient), handler)
  */
-export function Transactional(prisma: PrismaLike, options?: {timeout?: number; maxWait?: number}) {
+export function Transactional(
+  prisma: PrismaLike,
+  options?: {timeout?: number; maxWait?: number; companyIdInjector?: CompanyIdInjector},
+) {
   return function (req: Request, res: Response, next: NextFunction) {
     prisma
       .$transaction(
         async (tx) => {
-          if (_addCompanyFn && res.locals.entity) {
-            await _addCompanyFn(tx, res.locals.entity);
+          const addCompany = options?.companyIdInjector ?? _addCompanyFn;
+          if (addCompany && res.locals.entity) {
+            await addCompany(tx, res.locals.entity);
           }
           res.locals.tx = tx;
 

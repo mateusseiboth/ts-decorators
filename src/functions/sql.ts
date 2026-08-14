@@ -1,3 +1,5 @@
+import {getCompanyIdInjector, type CompanyIdInjector} from "../handlers/companyId";
+
 export interface IResponsePaginate<T> {
   data: {
     data: T[];
@@ -85,7 +87,13 @@ export async function executePrismaQuery<T>(
   return responseWithPaginate;
 }
 
-export function addCompanyIdToTransaction(tx: any, companyId: string) {
-  console.log("[@mateusseiboth/ts-commons] Transaction started for company ID:", companyId);
-  return tx.$executeRawUnsafe(`SET LOCAL "my.company_id" = ${Number(companyId)}`);
+/**
+ * Aplica o company id na transação usando a estratégia configurada.
+ *
+ * Padrão: `SET LOCAL "my.company_id" = <id>`.
+ * Troque globalmente com `setCompanyIdInjector(fn)` ou pontualmente passando
+ * `injector` no terceiro parâmetro.
+ */
+export function addCompanyIdToTransaction(tx: any, companyId: string, injector?: CompanyIdInjector) {
+  return (injector ?? getCompanyIdInjector())(tx, companyId);
 }

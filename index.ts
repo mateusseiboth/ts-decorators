@@ -66,6 +66,14 @@ import {makePrismaOptions, removeFromWhere} from "./src/functions/makePrismaOpti
 import {filterObjectByModel, getModelKeys} from "./src/functions/object";
 import {addCompanyIdToTransaction, convertBigIntValues, executePrismaQuery, type IResponsePaginate} from "./src/functions/sql";
 import {Audit} from "./src/handlers/Audit";
+import {
+  defaultCompanyIdInjector,
+  getCompanyIdInjector,
+  noopCompanyIdInjector,
+  resetCompanyIdInjector,
+  setCompanyIdInjector,
+  type CompanyIdInjector,
+} from "./src/handlers/companyId";
 import {Transactional as TransactionalHandler} from "./src/handlers/Transactional";
 import {compose} from "./src/handlers/compose";
 import {getHandlerContext, requireHandlerContext, setHandlerContext, type HandlerContext} from "./src/handlers/context";
@@ -169,6 +177,7 @@ export {
   createWhereCondition,
   createWhereConditionQuery,
   cronMatches,
+  defaultCompanyIdInjector,
   enqueue,
   // --- Infra (eventos / concorrência / filas) ---
   eventBus,
@@ -179,6 +188,7 @@ export {
   getAllDAOs,
   getAllModels,
   getCacheStats,
+  getCompanyIdInjector,
   getControllerRoutes,
   getDAO,
   getFieldTypeByKey,
@@ -200,12 +210,15 @@ export {
   jwtDecode,
   logDecorator,
   makePrismaOptions,
+  noopCompanyIdInjector,
   rateLimitMiddleware,
   registerProcessor,
   registerQueue,
   removeFromWhere,
   requireHandlerContext,
+  resetCompanyIdInjector,
   setAuditStorage,
+  setCompanyIdInjector,
   setHandlerContext,
   setPrismaClient,
   setTransactionalCompanyFn,
@@ -222,6 +235,7 @@ export {
   withTransaction,
   type ApplyControllerRoutesConfig,
   type AuditEntry,
+  type CompanyIdInjector,
   type DiScope,
   type EventHandler,
   type HandlerContext,

@@ -607,11 +607,47 @@ import { TransactionalClass, setTransactionalCompanyFn } from "@mateusseiboth/ts
 @TransactionalClass
 class OrderController { ... }
 
-// Optional: run a function at the start of every transaction (e.g. for row-level security)
+// Optional: run a function at the start of every transaction opened by
+// `Transactional(prisma)` (e.g. for row-level security). Opt-in: without this
+// call the middleware injects nothing.
 setTransactionalCompanyFn(async (tx, companyId) => {
   await tx.$executeRawUnsafe(`SET LOCAL "app.company_id" = ${companyId}`);
 });
 ```
+
+#### Company id injection (multi-tenant / RLS)
+
+`addCompanyIdToTransaction` — and therefore the `Transactional()` / `withTransaction()` handlers — applies the tenant to the transaction before running the handler. The default strategy is `SET LOCAL "my.company_id" = <id>`, and it is swappable at bootstrap — same idea as `setPrismaClient`:
+
+```ts
+import { setCompanyIdInjector, resetCompanyIdInjector, noopCompanyIdInjector } from "@mateusseiboth/ts-decorators";
+
+// Your own convention: another variable, another database, a stored procedure...
+setCompanyIdInjector(async (tx, companyId) => {
+  await tx.$executeRawUnsafe(`SELECT set_config('app.tenant', $1, true)`, companyId);
+});
+
+setCompanyIdInjector(noopCompanyIdInjector); // disables the injection
+resetCompanyIdInjector();                    // back to the package default
+```
+
+Per-route override, when a single endpoint needs a different strategy:
+
+```ts
+router.post("/orders", withTransaction(handler, { action: "create" }, {
+  companyIdInjector: async (tx, companyId) => tx.$executeRawUnsafe(`SET LOCAL "my.other_id" = ${Number(companyId)}`),
+}));
+```
+
+| Function                   | Description                                                            |
+| -------------------------- | ---------------------------------------------------------------------- |
+| `setCompanyIdInjector(fn)` | Replaces the global strategy — `fn(tx, companyId)`                     |
+| `getCompanyIdInjector()`   | Returns the strategy currently in use                                  |
+| `resetCompanyIdInjector()` | Restores the package default                                           |
+| `defaultCompanyIdInjector` | The default itself (`SET LOCAL "my.company_id"`), reusable in wrappers |
+| `noopCompanyIdInjector`    | Empty strategy — injects nothing                                       |
+
+> The legacy `Transactional(prisma)` middleware keeps its own opt-in behaviour: it injects nothing unless you call `setTransactionalCompanyFn` (or pass `companyIdInjector` in its options). `setCompanyIdInjector` does not change it.
 
 ---
 
@@ -1043,13 +1079,13 @@ collectFieldTypes(new StreetModel());
 
 ### Other helpers
 
-| Function                            | Description                                                                               |
-| ----------------------------------- | ----------------------------------------------------------------------------------------- |
-| `jwtDecode(token)`                  | Decodes (no signature verification) a JWT payload from a base64 string                    |
-| `filterObjectByModel(obj, Model)`   | Strips keys from `obj` that are not registered `@Field()` properties of Model             |
-| `extractAndRemoveByKey(obj, key)`   | Recursively finds the first occurrence of `key`, removes it and returns `{ value, obj }`  |
-| `convertBigIntValues(data)`         | Recursively converts `BigInt` and `Date` values to strings (safe for `JSON.stringify`)    |
-| `addCompanyIdToTransaction(tx, id)` | Executes `SET LOCAL "my.company_id" = <id>` for row-level security in multi-tenant setups |
+| Function                            | Description                                                                                                  |
+| ----------------------------------- | ------------------------------------------------------------------------------------------------------------ |
+| `jwtDecode(token)`                  | Decodes (no signature verification) a JWT payload from a base64 string                                       |
+| `filterObjectByModel(obj, Model)`   | Strips keys from `obj` that are not registered `@Field()` properties of Model                                |
+| `extractAndRemoveByKey(obj, key)`   | Recursively finds the first occurrence of `key`, removes it and returns `{ value, obj }`                     |
+| `convertBigIntValues(data)`         | Recursively converts `BigInt` and `Date` values to strings (safe for `JSON.stringify`)                       |
+| `addCompanyIdToTransaction(tx, id)` | Applies the tenant to the transaction via the [configured strategy](#company-id-injection-multi-tenant--rls) |
 
 ---
 
