@@ -1,8 +1,9 @@
-import type {NextFunction, Request, Response} from "express";
-import {AuditLogger} from "../storage/AuditLogger";
-import {getHandlerContext} from "./context";
+import type { NextFunction, Request, Response } from "express";
 
-export function Audit(options?: {action?: string}) {
+import { AuditLogger } from "../storage/AuditLogger";
+import { getHandlerContext } from "./context";
+
+export function Audit(options?: { action?: string }) {
   return function (handler: (req: Request, res: Response, next: NextFunction) => any) {
     return async function (req: Request, res: Response, next: NextFunction) {
       const start = Date.now();

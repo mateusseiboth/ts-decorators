@@ -10,8 +10,8 @@
  *   async gerarRelatorio(job) { ... }
  */
 
-import {Semaphore as SemaphorePrimitive} from "../concurrency/Semaphore";
-import {makeMethodDecorator} from "./_method";
+import { Semaphore as SemaphorePrimitive } from "../concurrency/Semaphore";
+import { makeMethodDecorator } from "./_method";
 
 export interface SemaphoreOptions {
   /** Máximo de execuções concorrentes. Default: 1. */

@@ -9,14 +9,14 @@
  *   async enqueue(job) { ...; return job; }
  */
 
-import {eventBus} from "../events/eventBus";
-import {makeMethodDecorator} from "./_method";
+import { eventBus } from "../events/eventBus";
+import { makeMethodDecorator } from "./_method";
 
 export function Emit(event: string) {
   return makeMethodDecorator("Emit", (original) => {
     return async function (this: any, ...args: any[]) {
       const result = await original.apply(this, args);
-      eventBus.emit(event, {result, args, instance: this});
+      eventBus.emit(event, { result, args, instance: this });
       return result;
     };
   });

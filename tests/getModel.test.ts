@@ -1,8 +1,16 @@
-import {afterEach, beforeEach, describe, expect, test} from "bun:test";
-import {clearLegacyWarnings} from "../src/decorators/_proxy";
-import {DAOFor, getAllDAOs, getAllModels, getDAO, getModel, ModelTagged} from "../src/decorators/getModel";
-import {captureLogs, captureWarnings, fakeClassContext} from "./_helpers";
-import {BairroModel, RuaModel, SimpleModel} from "./_models";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+
+import { clearLegacyWarnings } from "../src/decorators/_proxy";
+import {
+  DAOFor,
+  getAllDAOs,
+  getAllModels,
+  getDAO,
+  getModel,
+  ModelTagged,
+} from "../src/decorators/getModel";
+import { captureLogs, captureWarnings, fakeClassContext } from "./_helpers";
+import { BairroModel, RuaModel, SimpleModel } from "./_models";
 
 describe("getModel / ModelTagged / DAOFor", () => {
   let warnCap: ReturnType<typeof captureWarnings>;

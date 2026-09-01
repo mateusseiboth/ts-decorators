@@ -1,8 +1,9 @@
-import {afterEach, beforeEach, describe, expect, test} from "bun:test";
-import {clearLegacyWarnings} from "../src/decorators/_proxy";
-import {TransactionalClass, setTransactionalCompanyFn} from "../src/decorators/transactional";
-import {getCompanyIdInjector} from "../src/handlers/companyId";
-import {captureLogs, captureWarnings, fakeClassContext} from "./_helpers";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+
+import { clearLegacyWarnings } from "../src/decorators/_proxy";
+import { TransactionalClass, setTransactionalCompanyFn } from "../src/decorators/transactional";
+import { getCompanyIdInjector } from "../src/handlers/companyId";
+import { captureLogs, captureWarnings, fakeClassContext } from "./_helpers";
 
 describe("TransactionalClass", () => {
   let warnCap: ReturnType<typeof captureWarnings>;
@@ -31,9 +32,9 @@ describe("TransactionalClass", () => {
   describe("Legacy", () => {
     test("emite warning", () => {
       class C {
-        DAO = {tx: mockTx()};
+        DAO = { tx: mockTx() };
         async create() {
-          return {id: 1};
+          return { id: 1 };
         }
       }
       TransactionalClass(C as any);
@@ -43,15 +44,15 @@ describe("TransactionalClass", () => {
     test("cria e libera savepoint em sucesso", async () => {
       const tx = mockTx();
       class C {
-        DAO = {tx};
+        DAO = { tx };
         async create() {
-          return {id: 1};
+          return { id: 1 };
         }
       }
       TransactionalClass(C as any);
       const i = new C();
       const result = await i.create();
-      expect(result).toEqual({id: 1});
+      expect(result).toEqual({ id: 1 });
       expect(tx.calls.some((c) => c.startsWith('SAVEPOINT "sp_create_'))).toBe(true);
       expect(tx.calls.some((c) => c.startsWith('RELEASE SAVEPOINT "sp_create_'))).toBe(true);
     });
@@ -59,7 +60,7 @@ describe("TransactionalClass", () => {
     test("rollback em caso de erro", async () => {
       const tx = mockTx();
       class C {
-        DAO = {tx};
+        DAO = { tx };
         async update() {
           throw new Error("falha");
         }
@@ -79,7 +80,7 @@ describe("TransactionalClass", () => {
     test("métodos não write passam direto", async () => {
       const tx = mockTx();
       class C {
-        DAO = {tx};
+        DAO = { tx };
         async get() {
           return [1, 2];
         }
@@ -105,7 +106,7 @@ describe("TransactionalClass", () => {
     test("savepoints funcionam igual no TC39", async () => {
       const tx = mockTx();
       class C {
-        DAO = {tx};
+        DAO = { tx };
         async deleteById() {
           return true;
         }

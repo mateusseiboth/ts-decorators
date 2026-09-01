@@ -1,5 +1,5 @@
 import "reflect-metadata";
-import {isDecoratorContext, warnLegacy} from "./_proxy";
+import { isDecoratorContext, warnLegacy } from "./_proxy";
 
 /** Metadados de um campo aninhado (relação para outro Model). */
 export interface NestedModelMeta {
@@ -29,9 +29,9 @@ const NESTED_MODELS = new WeakMap<object, Record<string, NestedModelMeta>>();
 function normalizeNestedEntry(entry: any): NestedModelMeta | undefined {
   if (!entry) return undefined;
   // Formato antigo: apenas a classe (sempre to-one, sem auto-conversão).
-  if (typeof entry === "function") return {model: entry, isArray: false, autoConvert: false};
+  if (typeof entry === "function") return { model: entry, isArray: false, autoConvert: false };
   if (typeof entry === "object" && typeof entry.model === "function") {
-    return {model: entry.model, isArray: !!entry.isArray, autoConvert: !!entry.autoConvert};
+    return { model: entry.model, isArray: !!entry.isArray, autoConvert: !!entry.autoConvert };
   }
   return undefined;
 }
@@ -40,13 +40,19 @@ function normalizeNestedEntry(entry: any): NestedModelMeta | undefined {
  * Registra um model aninhado no armazenamento legacy (WeakMap por prototype).
  * Usado tanto pelo @NestedModel quanto pelo @Field(Class) / @Field([Class]).
  */
-export function registerNestedModelLegacy(target: object, key: string, model: Function, isArray = false, autoConvert = false): void {
+export function registerNestedModelLegacy(
+  target: object,
+  key: string,
+  model: Function,
+  isArray = false,
+  autoConvert = false,
+): void {
   let nested = NESTED_MODELS.get(target);
   if (!nested) {
     nested = {};
     NESTED_MODELS.set(target, nested);
   }
-  nested[key] = {model, isArray, autoConvert};
+  nested[key] = { model, isArray, autoConvert };
 }
 
 /**
@@ -60,7 +66,7 @@ export function registerNestedModelMeta(
   autoConvert = false,
 ): void {
   if (!meta.__nested) meta.__nested = {};
-  meta.__nested[key] = {model, isArray, autoConvert};
+  meta.__nested[key] = { model, isArray, autoConvert };
 }
 
 /**

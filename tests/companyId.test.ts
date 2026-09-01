@@ -1,8 +1,14 @@
-import {afterEach, beforeEach, describe, expect, test} from "bun:test";
-import {setTransactionalCompanyFn} from "../src/decorators/transactional";
-import {addCompanyIdToTransaction} from "../src/functions/sql";
-import {getCompanyIdInjector, noopCompanyIdInjector, resetCompanyIdInjector, setCompanyIdInjector} from "../src/handlers/companyId";
-import {captureLogs} from "./_helpers";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+
+import { setTransactionalCompanyFn } from "../src/decorators/transactional";
+import { addCompanyIdToTransaction } from "../src/functions/sql";
+import {
+  getCompanyIdInjector,
+  noopCompanyIdInjector,
+  resetCompanyIdInjector,
+  setCompanyIdInjector,
+} from "../src/handlers/companyId";
+import { captureLogs } from "./_helpers";
 
 describe("companyId injector", () => {
   let logCap: ReturnType<typeof captureLogs>;

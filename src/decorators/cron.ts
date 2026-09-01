@@ -17,7 +17,7 @@
  */
 
 import "reflect-metadata";
-import {isDecoratorContext, warnLegacy} from "./_proxy";
+import { isDecoratorContext, warnLegacy } from "./_proxy";
 
 const CRON_KEY = "cron:jobs";
 const _started = new WeakSet<object>();
@@ -35,7 +35,9 @@ function matchField(field: string, value: number): boolean {
       const [range, stepRaw] = part.split("/");
       const step = Number(stepRaw);
       const [start, end] = range === "*" ? [0, Infinity] : range!.split("-").map(Number);
-      return value >= (start ?? 0) && value <= (end ?? Infinity) && (value - (start ?? 0)) % step === 0;
+      return (
+        value >= (start ?? 0) && value <= (end ?? Infinity) && (value - (start ?? 0)) % step === 0
+      );
     }
     if (part.includes("-")) {
       const [start, end] = part.split("-").map(Number);
@@ -60,9 +62,10 @@ export function cronMatches(expr: string, date: Date): boolean {
 }
 
 function schedule(instance: any, meta: CronMeta): void {
-  const run = () => Promise.resolve(instance[meta.methodName]()).catch((err) => {
-    console.error(`[Cron] erro em ${instance.constructor?.name}.${meta.methodName}:`, err);
-  });
+  const run = () =>
+    Promise.resolve(instance[meta.methodName]()).catch((err) => {
+      console.error(`[Cron] erro em ${instance.constructor?.name}.${meta.methodName}:`, err);
+    });
 
   if (typeof meta.expr === "number") {
     const timer = setInterval(run, meta.expr);
@@ -77,7 +80,7 @@ function schedule(instance: any, meta: CronMeta): void {
     const now = new Date();
     if (now.getMinutes() === lastMinute) return;
     lastMinute = now.getMinutes();
-    if (cronMatches(meta.expr as string, now)) run();
+    if (cronMatches(meta.expr as string, now)) void run();
   }, 30_000);
   if ((timer as any).unref) (timer as any).unref();
   _timers.add(timer);
@@ -105,7 +108,7 @@ export function Cron(expr: string | number) {
       const context = args[1] as ClassMethodDecoratorContext;
       const methodName = String(context.name);
       context.addInitializer(function (this: any) {
-        schedule(this, {expr, methodName});
+        schedule(this, { expr, methodName });
       });
       return original;
     }
@@ -115,7 +118,7 @@ export function Cron(expr: string | number) {
     const target = args[0];
     const propertyKey = args[1] as string;
     const list: CronMeta[] = Reflect.getMetadata(CRON_KEY, target.constructor) ?? [];
-    list.push({expr, methodName: propertyKey});
+    list.push({ expr, methodName: propertyKey });
     Reflect.defineMetadata(CRON_KEY, list, target.constructor);
     return args[2];
   };

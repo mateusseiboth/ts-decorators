@@ -1,20 +1,24 @@
-import {describe, expect, test} from "bun:test";
-import type {RequestHandler} from "express";
-import {applyControllerRoutes} from "../src/decorators/http-methods";
-import {REST_PRESET, Rest, getRestRoutes} from "../src/decorators/rest";
+import { describe, expect, test } from "bun:test";
+
+import type { RequestHandler } from "express";
+
+import { applyControllerRoutes } from "../src/decorators/http-methods";
+import { REST_PRESET, Rest, getRestRoutes } from "../src/decorators/rest";
 
 function makeRecorder() {
-  const calls: Array<{label: string; method: string; path: string}> = [];
+  const calls: Array<{ label: string; method: string; path: string }> = [];
   const builder = (label: string) =>
     new Proxy(
       {},
       {
-        get: (_t, method: string) => (path: string, ..._h: RequestHandler[]) => {
-          calls.push({label, method, path});
-        },
+        get:
+          (_t, method: string) =>
+          (path: string, ..._h: RequestHandler[]) => {
+            calls.push({ label, method, path });
+          },
       },
     ) as any;
-  return {calls, builder};
+  return { calls, builder };
 }
 
 describe("@Rest — CRUD declarativo", () => {
@@ -36,7 +40,7 @@ describe("@Rest — CRUD declarativo", () => {
   });
 
   test("only restringe as ações", () => {
-    @Rest({only: ["list", "get"]})
+    @Rest({ only: ["list", "get"] })
     class Registry {}
     const names = getRestRoutes(Registry)
       .map((r) => r.handlerName)
@@ -45,7 +49,7 @@ describe("@Rest — CRUD declarativo", () => {
   });
 
   test("except remove ações", () => {
-    @Rest({except: ["delete", "update"]})
+    @Rest({ except: ["delete", "update"] })
     class Registry {}
     const names = getRestRoutes(Registry).map((r) => r.handlerName);
     expect(names).not.toContain("deleteById");
@@ -56,7 +60,7 @@ describe("@Rest — CRUD declarativo", () => {
   test("overrides customizam path/use/options", () => {
     @Rest({
       overrides: {
-        list: {use: "routeSpecial", path: "/todos", options: {action: "LISTAR"}},
+        list: { use: "routeSpecial", path: "/todos", options: { action: "LISTAR" } },
       },
     })
     class Registry {}
@@ -73,12 +77,17 @@ describe("@Rest — CRUD declarativo", () => {
   });
 
   test("integra com applyControllerRoutes resolvendo builders por nome", () => {
-    const {calls, builder} = makeRecorder();
+    const { calls, builder } = makeRecorder();
     const route = builder("route");
     const routeWithPaginate = builder("paginate");
     const routeWithExtraInfo = builder("extra");
     const routeWithIdempotency = builder("idem");
-    const map: Record<string, any> = {route, routeWithPaginate, routeWithExtraInfo, routeWithIdempotency};
+    const map: Record<string, any> = {
+      route,
+      routeWithPaginate,
+      routeWithExtraInfo,
+      routeWithIdempotency,
+    };
 
     class Controller {
       get() {}
@@ -97,13 +106,13 @@ describe("@Rest — CRUD declarativo", () => {
       resolveBuilder: (use) => map[use ?? "route"],
     });
 
-    expect(calls).toContainEqual({label: "paginate", method: "get", path: "/"});
-    expect(calls).toContainEqual({label: "idem", method: "delete", path: "/:id"});
-    expect(calls).toContainEqual({label: "extra", method: "post", path: "/"});
+    expect(calls).toContainEqual({ label: "paginate", method: "get", path: "/" });
+    expect(calls).toContainEqual({ label: "idem", method: "delete", path: "/:id" });
+    expect(calls).toContainEqual({ label: "extra", method: "post", path: "/" });
   });
 
   test("ignora ação cujo handler não existe no controller", () => {
-    const {calls, builder} = makeRecorder();
+    const { calls, builder } = makeRecorder();
     const b = builder("b");
 
     class Controller {
@@ -127,14 +136,8 @@ describe("@Rest — CRUD declarativo", () => {
 
   test("options.build transforma o builder só daquela rota", () => {
     let built = false;
-    const transformed = new Proxy(
-      {},
-      {get: () => (_p: string) => {}},
-    ) as any;
-    const base = new Proxy(
-      {},
-      {get: () => (_p: string) => {}},
-    ) as any;
+    const transformed = new Proxy({}, { get: () => (_p: string) => {} }) as any;
+    const base = new Proxy({}, { get: () => (_p: string) => {} }) as any;
 
     @Rest({
       overrides: {

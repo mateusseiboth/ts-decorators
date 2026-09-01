@@ -1,6 +1,7 @@
-import {afterEach, beforeEach, describe, expect, test} from "bun:test";
-import {clearLegacyWarnings, isDecoratorContext, warnLegacy} from "../src/decorators/_proxy";
-import {captureWarnings, fakeClassContext, fakeFieldContext, fakeMethodContext} from "./_helpers";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+
+import { clearLegacyWarnings, isDecoratorContext, warnLegacy } from "../src/decorators/_proxy";
+import { captureWarnings, fakeClassContext, fakeFieldContext, fakeMethodContext } from "./_helpers";
 
 describe("_proxy", () => {
   let capture: ReturnType<typeof captureWarnings>;
@@ -25,9 +26,9 @@ describe("_proxy", () => {
       expect(isDecoratorContext(fakeFieldContext("f"))).toBe(true);
     });
     test("true para getter/setter/accessor", () => {
-      expect(isDecoratorContext({kind: "getter", name: "x"})).toBe(true);
-      expect(isDecoratorContext({kind: "setter", name: "x"})).toBe(true);
-      expect(isDecoratorContext({kind: "accessor", name: "x"})).toBe(true);
+      expect(isDecoratorContext({ kind: "getter", name: "x" })).toBe(true);
+      expect(isDecoratorContext({ kind: "setter", name: "x" })).toBe(true);
+      expect(isDecoratorContext({ kind: "accessor", name: "x" })).toBe(true);
     });
     test("false para null/undefined/primitivo", () => {
       expect(isDecoratorContext(null)).toBe(false);
@@ -35,9 +36,9 @@ describe("_proxy", () => {
       expect(isDecoratorContext(42)).toBe(false);
     });
     test("false para objeto sem kind ou kind inválido", () => {
-      expect(isDecoratorContext({name: "x"})).toBe(false);
-      expect(isDecoratorContext({kind: "banana"})).toBe(false);
-      expect(isDecoratorContext({kind: 123})).toBe(false);
+      expect(isDecoratorContext({ name: "x" })).toBe(false);
+      expect(isDecoratorContext({ kind: "banana" })).toBe(false);
+      expect(isDecoratorContext({ kind: 123 })).toBe(false);
     });
   });
 

@@ -1,7 +1,7 @@
 /**
  * Helpers compartilhados para testes.
  */
-import type {NextFunction, Request} from "express";
+import type { NextFunction, Request } from "express";
 
 /** Cria um mock de Request do Express */
 export function mockReq(overrides: Partial<Request> & Record<string, any> = {}): any {
@@ -15,7 +15,7 @@ export function mockReq(overrides: Partial<Request> & Record<string, any> = {}):
     url: "/test",
     baseUrl: "",
     path: "/test",
-    socket: {remoteAddress: "127.0.0.1"},
+    socket: { remoteAddress: "127.0.0.1" },
     ...overrides,
   };
 }
@@ -52,7 +52,7 @@ export function mockRes(overrides: Record<string, any> = {}): any {
 }
 
 /** Cria um mock de NextFunction do Express */
-export function mockNext(): NextFunction & {called: boolean; error?: any} {
+export function mockNext(): NextFunction & { called: boolean; error?: any } {
   const fn: any = (err?: any) => {
     fn.called = true;
     fn.error = err;
@@ -81,12 +81,15 @@ export function fakeMethodContext(name: string): ClassMethodDecoratorContext {
     private: false,
     metadata: {},
     addInitializer(_fn: () => void) {},
-    access: {has: () => true, get: () => undefined},
+    access: { has: () => true, get: () => undefined },
   } as any;
 }
 
 /** Cria um DecoratorContext fake para TC39 Stage 3 field decorators */
-export function fakeFieldContext(name: string, metadata: Record<string, any> = {}): ClassFieldDecoratorContext {
+export function fakeFieldContext(
+  name: string,
+  metadata: Record<string, any> = {},
+): ClassFieldDecoratorContext {
   return {
     kind: "field",
     name,
@@ -94,12 +97,12 @@ export function fakeFieldContext(name: string, metadata: Record<string, any> = {
     private: false,
     metadata,
     addInitializer(_fn: () => void) {},
-    access: {has: () => true, get: () => undefined, set: () => {}},
+    access: { has: () => true, get: () => undefined, set: () => {} },
   } as any;
 }
 
 /** Captura console.warn calls */
-export function captureWarnings(): {warnings: string[]; restore: () => void} {
+export function captureWarnings(): { warnings: string[]; restore: () => void } {
   const warnings: string[] = [];
   const origWarn = console.warn;
   console.warn = (...args: any[]) => {
@@ -114,7 +117,7 @@ export function captureWarnings(): {warnings: string[]; restore: () => void} {
 }
 
 /** Captura console.log calls */
-export function captureLogs(): {logs: string[]; restore: () => void} {
+export function captureLogs(): { logs: string[]; restore: () => void } {
   const logs: string[] = [];
   const origLog = console.log;
   console.log = (...args: any[]) => {

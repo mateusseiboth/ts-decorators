@@ -5,7 +5,7 @@
  * Implementa a interface comum {@link QueueAdapter}.
  */
 
-import type {QueueAdapter, QueueJob} from "./adapter";
+import type { QueueAdapter, QueueJob } from "./adapter";
 
 export class InMemoryQueueAdapter<T = any> implements QueueAdapter<T> {
   private readonly store = new Map<string, QueueJob<T>>();
@@ -23,16 +23,16 @@ export class InMemoryQueueAdapter<T = any> implements QueueAdapter<T> {
   }
 
   create(job: QueueJob<T>): QueueJob<T> {
-    this.store.set(job.id, {...job});
-    return {...job};
+    this.store.set(job.id, { ...job });
+    return { ...job };
   }
 
   update(id: string, patch: Partial<QueueJob<T>>): QueueJob<T> | null {
     const current = this.store.get(id);
     if (!current) return null;
-    const updated = {...current, ...patch};
+    const updated = { ...current, ...patch };
     this.store.set(id, updated);
-    return {...updated};
+    return { ...updated };
   }
 
   delete(id: string): void {

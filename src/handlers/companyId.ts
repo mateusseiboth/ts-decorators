@@ -35,7 +35,9 @@ let _companyIdInjector: CompanyIdInjector = defaultCompanyIdInjector;
 /** Substitui a estratégia global usada por `addCompanyIdToTransaction`. */
 export function setCompanyIdInjector(injector: CompanyIdInjector): void {
   if (typeof injector !== "function") {
-    throw new Error("[@mateusseiboth/ts-commons] setCompanyIdInjector espera uma função (tx, companyId) => void | Promise<void>.");
+    throw new Error(
+      "[@mateusseiboth/ts-commons] setCompanyIdInjector espera uma função (tx, companyId) => void | Promise<void>.",
+    );
   }
   _companyIdInjector = injector;
 }

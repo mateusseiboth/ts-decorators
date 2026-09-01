@@ -3,10 +3,10 @@
  * Usado por múltiplos arquivos de teste.
  */
 import "reflect-metadata";
-import {AutoConvert} from "../src/decorators/autoConvert";
-import {ModelTagged, getModel} from "../src/decorators/getModel";
-import {Field, InitFields, getFieldTypes} from "../src/decorators/initFields";
-import {NestedModel} from "../src/decorators/nestedModel";
+import { AutoConvert } from "../src/decorators/autoConvert";
+import { ModelTagged, getModel } from "../src/decorators/getModel";
+import { Field, InitFields, getFieldTypes } from "../src/decorators/initFields";
+import { NestedModel } from "../src/decorators/nestedModel";
 
 // ───── BaseModel (padrão igual ao real) ─────
 

@@ -1,7 +1,20 @@
-import {afterEach, beforeEach, describe, expect, test} from "bun:test";
-import {clearLegacyWarnings} from "../src/decorators/_proxy";
-import {RateLimit, RateLimitMethod, clearRateLimitStore, rateLimitMiddleware} from "../src/decorators/rateLimit";
-import {captureWarnings, fakeClassContext, fakeMethodContext, mockNext, mockReq, mockRes} from "./_helpers";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+
+import { clearLegacyWarnings } from "../src/decorators/_proxy";
+import {
+  RateLimit,
+  RateLimitMethod,
+  clearRateLimitStore,
+  rateLimitMiddleware,
+} from "../src/decorators/rateLimit";
+import {
+  captureWarnings,
+  fakeClassContext,
+  fakeMethodContext,
+  mockNext,
+  mockReq,
+  mockRes,
+} from "./_helpers";
 
 describe("RateLimit", () => {
   let warnCap: ReturnType<typeof captureWarnings>;
@@ -19,29 +32,29 @@ describe("RateLimit", () => {
     test("emite warning", () => {
       class C {
         async get(req: any, res: any) {
-          return res.json({ok: 1});
+          return res.json({ ok: 1 });
         }
       }
-      RateLimit({maxRequests: 5})(C as any);
+      RateLimit({ maxRequests: 5 })(C as any);
       expect(warnCap.warnings.some((w) => w.includes("RateLimit"))).toBe(true);
     });
 
     test("permite até maxRequests e bloqueia depois", async () => {
       class C {
         async get(req: any, res: any) {
-          return res.json({ok: 1});
+          return res.json({ ok: 1 });
         }
       }
-      const D = RateLimit({maxRequests: 2, windowMs: 60_000})(C as any);
+      const D = RateLimit({ maxRequests: 2, windowMs: 60_000 })(C as any);
       const i = new D();
 
       for (let n = 0; n < 2; n++) {
-        const r = mockRes({locals: {entity: "1"}});
+        const r = mockRes({ locals: { entity: "1" } });
         await i.get(mockReq(), r);
         expect(r.statusCode).toBe(200);
       }
 
-      const rBlocked = mockRes({locals: {entity: "1"}});
+      const rBlocked = mockRes({ locals: { entity: "1" } });
       await i.get(mockReq(), rBlocked);
       expect(rBlocked.statusCode).toBe(429);
       expect(rBlocked._body.code).toBe("RATE_LIMIT_EXCEEDED");
@@ -53,8 +66,8 @@ describe("RateLimit", () => {
           return res.json({});
         }
       }
-      const D = RateLimit({maxRequests: 10})(C as any);
-      const r = mockRes({locals: {entity: "1"}});
+      const D = RateLimit({ maxRequests: 10 })(C as any);
+      const r = mockRes({ locals: { entity: "1" } });
       await new D().get(mockReq(), r);
       expect(r._headers["X-RateLimit-Limit"]).toBe(10);
       expect(r._headers["X-RateLimit-Remaining"]).toBe(9);
@@ -81,7 +94,7 @@ describe("RateLimit", () => {
         }
       }
       const d = Object.getOwnPropertyDescriptor(S.prototype, "find")!;
-      RateLimitMethod({maxRequests: 3})(S.prototype, "find", d);
+      RateLimitMethod({ maxRequests: 3 })(S.prototype, "find", d);
       expect(warnCap.warnings.some((w) => w.includes("RateLimitMethod"))).toBe(true);
     });
 
@@ -92,13 +105,13 @@ describe("RateLimit", () => {
         }
       }
       const d = Object.getOwnPropertyDescriptor(S.prototype, "find")!;
-      RateLimitMethod({maxRequests: 1, windowMs: 60_000})(S.prototype, "find", d);
+      RateLimitMethod({ maxRequests: 1, windowMs: 60_000 })(S.prototype, "find", d);
       Object.defineProperty(S.prototype, "find", d);
 
       const i = new S();
-      await i.find(mockReq(), mockRes({locals: {entity: "9"}}));
+      await i.find(mockReq(), mockRes({ locals: { entity: "9" } }));
 
-      const rBlocked = mockRes({locals: {entity: "9"}});
+      const rBlocked = mockRes({ locals: { entity: "9" } });
       await i.find(mockReq(), rBlocked);
       expect(rBlocked.statusCode).toBe(429);
     });
@@ -109,13 +122,16 @@ describe("RateLimit", () => {
       async function search(this: any, req: any, res: any) {
         return res.json([]);
       }
-      const wrapped = RateLimitMethod({maxRequests: 1, windowMs: 60_000})(search, fakeMethodContext("search"));
+      const wrapped = RateLimitMethod({ maxRequests: 1, windowMs: 60_000 })(
+        search,
+        fakeMethodContext("search"),
+      );
       expect(warnCap.warnings.every((w) => !w.includes("RateLimitMethod"))).toBe(true);
 
-      const ctx = {constructor: {name: "SvcRL"}};
-      await wrapped.call(ctx, mockReq(), mockRes({locals: {entity: "x"}}));
+      const ctx = { constructor: { name: "SvcRL" } };
+      await wrapped.call(ctx, mockReq(), mockRes({ locals: { entity: "x" } }));
 
-      const rB = mockRes({locals: {entity: "x"}});
+      const rB = mockRes({ locals: { entity: "x" } });
       await wrapped.call(ctx, mockReq(), rB);
       expect(rB.statusCode).toBe(429);
     });
@@ -123,18 +139,18 @@ describe("RateLimit", () => {
 
   describe("rateLimitMiddleware", () => {
     test("funciona como middleware Express", async () => {
-      const mw = rateLimitMiddleware({maxRequests: 2, windowMs: 60_000});
+      const mw = rateLimitMiddleware({ maxRequests: 2, windowMs: 60_000 });
 
       for (let i = 0; i < 2; i++) {
         const n = mockNext();
-        mw(mockReq({ip: "10.0.0.1"}), mockRes({locals: {entity: "1"}}), n);
+        mw(mockReq({ ip: "10.0.0.1" }), mockRes({ locals: { entity: "1" } }), n);
         expect(n.called).toBe(true);
         expect(n.error).toBeUndefined();
       }
 
-      const res3 = mockRes({locals: {entity: "1"}});
+      const res3 = mockRes({ locals: { entity: "1" } });
       const n3 = mockNext();
-      mw(mockReq({ip: "10.0.0.1"}), res3, n3);
+      mw(mockReq({ ip: "10.0.0.1" }), res3, n3);
       expect(res3.statusCode).toBe(429);
       expect(n3.called).toBe(false);
     });
@@ -147,13 +163,13 @@ describe("RateLimit", () => {
           return res.json({});
         }
       }
-      const D = RateLimit({maxRequests: 1})(C as any);
+      const D = RateLimit({ maxRequests: 1 })(C as any);
       const i = new D();
-      await i.get(mockReq(), mockRes({locals: {entity: "1"}}));
+      await i.get(mockReq(), mockRes({ locals: { entity: "1" } }));
 
       clearRateLimitStore();
 
-      const r = mockRes({locals: {entity: "1"}});
+      const r = mockRes({ locals: { entity: "1" } });
       await i.get(mockReq(), r);
       expect(r.statusCode).toBe(200);
     });

@@ -1,9 +1,10 @@
-import {afterEach, beforeEach, describe, expect, test} from "bun:test";
-import {clearLegacyWarnings} from "../src/decorators/_proxy";
-import {NestedModel, getNestedModel} from "../src/decorators/nestedModel";
-import {collectFieldTypes} from "../src/functions/collectFieldsTypes";
-import {captureLogs, captureWarnings, fakeFieldContext} from "./_helpers";
-import {BairroModel, RuaModel} from "./_models";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+
+import { clearLegacyWarnings } from "../src/decorators/_proxy";
+import { NestedModel, getNestedModel } from "../src/decorators/nestedModel";
+import { collectFieldTypes } from "../src/functions/collectFieldsTypes";
+import { captureLogs, captureWarnings, fakeFieldContext } from "./_helpers";
+import { BairroModel, RuaModel } from "./_models";
 
 describe("NestedModel + collectFieldTypes", () => {
   let warnCap: ReturnType<typeof captureWarnings>;
@@ -48,7 +49,7 @@ describe("NestedModel + collectFieldTypes", () => {
 
   describe("collectFieldTypes", () => {
     test("coleta campos flat de SimpleModel", () => {
-      const {SimpleModel} = require("./_models");
+      const { SimpleModel } = require("./_models");
       const fields = collectFieldTypes(new SimpleModel());
       expect(fields["id"]).toBeDefined();
       expect(fields["name"]).toBeDefined();

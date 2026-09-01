@@ -1,8 +1,9 @@
-import {describe, expect, test} from "bun:test";
-import {Mutex as MutexPrimitive} from "../src/concurrency/Mutex";
-import {Semaphore as SemaphorePrimitive} from "../src/concurrency/Semaphore";
-import {Mutex} from "../src/decorators/mutex";
-import {Semaphore, clearSemaphores} from "../src/decorators/semaphore";
+import { describe, expect, test } from "bun:test";
+
+import { Mutex as MutexPrimitive } from "../src/concurrency/Mutex";
+import { Semaphore as SemaphorePrimitive } from "../src/concurrency/Semaphore";
+import { Mutex } from "../src/decorators/mutex";
+import { Semaphore, clearSemaphores } from "../src/decorators/semaphore";
 
 const delay = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -39,7 +40,7 @@ describe("Semaphore primitive", () => {
         active--;
       });
 
-    await Promise.all(Array.from({length: 6}, task));
+    await Promise.all(Array.from({ length: 6 }, task));
     expect(maxActive).toBe(2);
   });
 });
@@ -72,7 +73,7 @@ describe("@Semaphore decorator", () => {
     let maxActive = 0;
 
     class Service {
-      @Semaphore({limit: 3})
+      @Semaphore({ limit: 3 })
       async run() {
         active++;
         maxActive = Math.max(maxActive, active);
@@ -82,7 +83,7 @@ describe("@Semaphore decorator", () => {
     }
 
     const s = new Service();
-    await Promise.all(Array.from({length: 9}, () => s.run()));
+    await Promise.all(Array.from({ length: 9 }, () => s.run()));
     expect(maxActive).toBe(3);
   });
 });

@@ -23,6 +23,9 @@ export interface QueueAdapter<T = any> {
   findMany(filter?: Partial<QueueJob<T>>): Promise<Array<QueueJob<T>>> | Array<QueueJob<T>>;
   findUnique(id: string): Promise<QueueJob<T> | null> | (QueueJob<T> | null);
   create(job: QueueJob<T>): Promise<QueueJob<T>> | QueueJob<T>;
-  update(id: string, patch: Partial<QueueJob<T>>): Promise<QueueJob<T> | null> | (QueueJob<T> | null);
+  update(
+    id: string,
+    patch: Partial<QueueJob<T>>,
+  ): Promise<QueueJob<T> | null> | (QueueJob<T> | null);
   delete(id: string): Promise<void> | void;
 }

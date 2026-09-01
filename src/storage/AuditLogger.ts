@@ -1,8 +1,15 @@
-import {Database} from "bun:sqlite";
-import {existsSync, mkdirSync} from "fs";
+import { Database } from "bun:sqlite";
+import { existsSync, mkdirSync } from "fs";
 import path from "path";
 
-const SENSITIVE_KEYS = new Set(["senha", "password", "token", "secret", "access_token", "refresh_token"]);
+const SENSITIVE_KEYS = new Set([
+  "senha",
+  "password",
+  "token",
+  "secret",
+  "access_token",
+  "refresh_token",
+]);
 
 function maskSensitive(obj: unknown): unknown {
   if (!obj || typeof obj !== "object") return obj;
@@ -41,10 +48,10 @@ export class AuditLogger {
     const logsDir = path.join(rootPath, "logs");
 
     if (!existsSync(logsDir)) {
-      mkdirSync(logsDir, {recursive: true});
+      mkdirSync(logsDir, { recursive: true });
     }
 
-    this.db = new Database(path.join(logsDir, "audit.db"), {create: true});
+    this.db = new Database(path.join(logsDir, "audit.db"), { create: true });
     this.init();
   }
 

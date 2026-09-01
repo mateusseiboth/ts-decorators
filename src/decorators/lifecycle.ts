@@ -12,7 +12,7 @@
  */
 
 import "reflect-metadata";
-import {isDecoratorContext, warnLegacy} from "./_proxy";
+import { isDecoratorContext, warnLegacy } from "./_proxy";
 
 const DI_SCOPE_KEY = "di:scope";
 const DI_SCOPE_KEYFN = "di:scopeKeyFn";

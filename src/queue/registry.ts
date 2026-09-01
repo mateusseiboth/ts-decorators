@@ -17,9 +17,10 @@
  *    jobs, mas os já em voo terminam. `getInFlightCount()` diz quando é seguro sair.
  */
 
-import {randomUUID} from "crypto";
-import {Semaphore} from "../concurrency/Semaphore";
-import type {QueueAdapter, QueueJob} from "./adapter";
+import { randomUUID } from "crypto";
+
+import { Semaphore } from "../concurrency/Semaphore";
+import type { QueueAdapter, QueueJob } from "./adapter";
 
 interface ProcessorEntry {
   handler: (payload: any) => any | Promise<any>;
@@ -51,7 +52,7 @@ let _paused = false;
 function getOrCreate(name: string): QueueEntry {
   let entry = _queues.get(name);
   if (!entry) {
-    entry = {name, adapter: undefined as any, running: false, inFlightKeys: new Set()};
+    entry = { name, adapter: undefined as any, running: false, inFlightKeys: new Set() };
     _queues.set(name, entry);
   }
   return entry;
@@ -80,13 +81,18 @@ export async function enqueue<T = any>(name: string, payload: T): Promise<QueueJ
   return entry.adapter.create(job);
 }
 
-async function runJob(entry: QueueEntry, job: QueueJob, key: string | number | undefined, release: () => void): Promise<void> {
+async function runJob(
+  entry: QueueEntry,
+  job: QueueJob,
+  key: string | number | undefined,
+  release: () => void,
+): Promise<void> {
   _inFlight++;
   try {
     await entry.processor!.handler(job.payload);
-    await entry.adapter.update(job.id, {status: "completed"});
+    await entry.adapter.update(job.id, { status: "completed" });
   } catch (err: any) {
-    await entry.adapter.update(job.id, {status: "failed", error: err?.message ?? String(err)});
+    await entry.adapter.update(job.id, { status: "failed", error: err?.message ?? String(err) });
   } finally {
     _inFlight--;
     if (key !== undefined) entry.inFlightKeys.delete(key);
@@ -99,7 +105,7 @@ async function drain(entry: QueueEntry): Promise<void> {
   if (_paused) return;
   const sem = entry.sem!;
   const keyOf = entry.processor!.keyOf;
-  const pending = (await entry.adapter.findMany({status: "pending"})) as QueueJob[];
+  const pending = (await entry.adapter.findMany({ status: "pending" })) as QueueJob[];
 
   for (const job of pending) {
     const key = keyOf?.(job.payload);
@@ -112,7 +118,7 @@ async function drain(entry: QueueEntry): Promise<void> {
     if (!release) break; // sem vaga global → nada roda neste tick.
 
     if (key !== undefined) entry.inFlightKeys.add(key);
-    await entry.adapter.update(job.id, {status: "processing"});
+    await entry.adapter.update(job.id, { status: "processing" });
     void runJob(entry, job, key, release);
   }
 }
@@ -123,7 +129,8 @@ export function startProcessors(): void {
     if (!entry.processor || !entry.adapter || entry.running) continue;
     entry.running = true;
     entry.sem = new Semaphore(entry.processor.concurrency);
-    const tick = () => void drain(entry).catch((err) => console.error(`[Queue:${entry.name}]`, err));
+    const tick = () =>
+      void drain(entry).catch((err) => console.error(`[Queue:${entry.name}]`, err));
     entry.timer = setInterval(tick, entry.processor.pollMs);
     if ((entry.timer as any).unref) (entry.timer as any).unref();
     tick();

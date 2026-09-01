@@ -1,8 +1,9 @@
-import {Router} from "express";
-import type {RequestHandler} from "express";
-import {getOrderBy} from "../middlwares/getOrderBy";
-import {getPaginate} from "../middlwares/getPaginate";
-import {getWhere} from "../middlwares/getWhere";
+import { Router } from "express";
+import type { RequestHandler } from "express";
+
+import { getOrderBy } from "../middlwares/getOrderBy";
+import { getPaginate } from "../middlwares/getPaginate";
+import { getWhere } from "../middlwares/getWhere";
 
 type HttpHandler = RequestHandler;
 
@@ -56,7 +57,7 @@ export class RouteBuilder {
     return new RouteBuilder(this.router, [...this.defaultMiddlewares, ...middlewares]);
   }
 
-  withPrismaOptions<T extends {tag: number; getModel: () => any}>(model: T) {
+  withPrismaOptions<T extends { tag: number; getModel: () => any }>(model: T) {
     return this.extend([
       (req, res, next) => getOrderBy<T>(req, res, next, model),
 

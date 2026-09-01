@@ -1,6 +1,9 @@
-import {isDecoratorContext, warnLegacy} from "./_proxy";
+import { isDecoratorContext, warnLegacy } from "./_proxy";
 
-export function logDecorator<T extends new (...args: any[]) => {}>(constructor: T, context?: ClassDecoratorContext): T {
+export function logDecorator<T extends new (...args: any[]) => {}>(
+  constructor: T,
+  context?: ClassDecoratorContext,
+): T {
   if (!context || !isDecoratorContext(context)) {
     warnLegacy("logDecorator");
   }

@@ -1,5 +1,5 @@
-import {ClientError} from "../errors/commons";
-import {isDecoratorContext, warnLegacy} from "./_proxy";
+import { ClientError } from "../errors/commons";
+import { isDecoratorContext, warnLegacy } from "./_proxy";
 
 // Registry central
 const registry = {
@@ -22,7 +22,9 @@ export function ModelTagged(target: any, context?: ClassDecoratorContext) {
     console.error(`[@mateusseiboth/ts-commons]   Tag: "${target.tag}"`);
     console.error(`[@mateusseiboth/ts-commons]   Model existente: ${existingModel.name}`);
     console.error(`[@mateusseiboth/ts-commons]   Tentativa de registrar: ${target.name}`);
-    console.error(`\n[@mateusseiboth/ts-commons]   Cada Model deve ter uma tag única no sistema.\n`);
+    console.error(
+      `\n[@mateusseiboth/ts-commons]   Cada Model deve ter uma tag única no sistema.\n`,
+    );
     process.exit(1);
   }
 

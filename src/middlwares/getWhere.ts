@@ -1,9 +1,10 @@
-import type {NextFunction, Request, Response} from "express";
-import {OPTIONS_FILTER} from "../constants/default";
-import {Controller} from "../Controller";
-import {getModel} from "../decorators/getModel";
-import {getFieldTypes} from "../decorators/initFields";
-import {collectFieldMeta} from "../functions/collectFieldsTypes";
+import type { NextFunction, Request, Response } from "express";
+
+import { OPTIONS_FILTER } from "../constants/default";
+import { Controller } from "../Controller";
+import { getModel } from "../decorators/getModel";
+import { getFieldTypes } from "../decorators/initFields";
+import { collectFieldMeta } from "../functions/collectFieldsTypes";
 
 function expandRanges(rawValues: string[], isNumeric: boolean, typePrefix?: string) {
   const expanded: string[] = [];
@@ -31,7 +32,9 @@ function expandRanges(rawValues: string[], isNumeric: boolean, typePrefix?: stri
       const [start, end] = cleanVal.split("-").map(Number);
       //@ts-ignore dynamic loop
       for (let i = start; i <= end; i++) {
-        expanded.push(type ? `${type}:${isNegative ? "!" : ""}${i}` : `${isNegative ? "!" : ""}${i}`);
+        expanded.push(
+          type ? `${type}:${isNegative ? "!" : ""}${i}` : `${isNegative ? "!" : ""}${i}`,
+        );
       }
     } else {
       expanded.push(type ? `${type}:${actualValue}` : actualValue);
@@ -41,27 +44,34 @@ function expandRanges(rawValues: string[], isNumeric: boolean, typePrefix?: stri
   return expanded;
 }
 
-export function getWhere<T extends Object>(
+export function getWhere<T extends object>(
   req: Request,
   res: Response,
   next: NextFunction,
-  classBase: {getModel: () => T; tag: number},
+  classBase: { getModel: () => T; tag: number },
   customFields: Record<string, any> = {},
 ) {
   let where: Record<string, any> = {};
   const classRecord = getModel(classBase.tag);
-  const {types: fieldTypes, listPaths} = collectFieldMeta(classRecord.prototype);
-  const keys = Object.keys(fieldTypes as T extends {[key: string]: any} ? T : never);
+  const { types: fieldTypes, listPaths } = collectFieldMeta(classRecord.prototype);
+  const keys = Object.keys(fieldTypes as T extends { [key: string]: any } ? T : never);
 
   const conditions: Record<string, any> = {};
 
   keys.forEach((key) => {
     if (req.query[key]) {
-      const condition = createWhereConditionQuery(req.query[key] as string, key, fieldTypes, listPaths);
+      const condition = createWhereConditionQuery(
+        req.query[key] as string,
+        key,
+        fieldTypes,
+        listPaths,
+      );
 
       if (!conditions[key]) conditions[key] = {};
-      if (condition.OR?.length) conditions[key].OR = [...(conditions[key].OR || []), ...condition.OR];
-      if (condition.NOT?.length) conditions[key].NOT = [...(conditions[key].NOT || []), ...condition.NOT];
+      if (condition.OR?.length)
+        conditions[key].OR = [...(conditions[key].OR || []), ...condition.OR];
+      if (condition.NOT?.length)
+        conditions[key].NOT = [...(conditions[key].NOT || []), ...condition.NOT];
     }
   });
 
@@ -73,7 +83,10 @@ export function getWhere<T extends Object>(
     where.AND = finalConditions;
   }
 
-  if (Object.keys(conditions).length > 0 && Object.values(conditions).every((cond) => cond.NOT && !cond.OR)) {
+  if (
+    Object.keys(conditions).length > 0 &&
+    Object.values(conditions).every((cond) => cond.NOT && !cond.OR)
+  ) {
     where = {
       ...where,
       NOT: Object.values(conditions)
@@ -85,7 +98,10 @@ export function getWhere<T extends Object>(
   if (Object.keys(customFields).length > 0) {
     where = {
       ...where,
-      AND: [...(where.AND || []), ...Object.entries(customFields).map(([key, value]) => ({[key]: value}))],
+      AND: [
+        ...(where.AND || []),
+        ...Object.entries(customFields).map(([key, value]) => ({ [key]: value })),
+      ],
     };
   }
 
@@ -100,13 +116,17 @@ export function getWhere<T extends Object>(
  * `listPaths`), o objeto aninhado é envolvido com `some`, produzindo um filtro
  * de lista válido no Prisma (ex.: `posts.title` -> `{posts: {some: {title: ...}}}`).
  */
-function buildNestedCondition(key: string, value: any, listPaths: Set<string> = new Set()): Record<string, any> {
+function buildNestedCondition(
+  key: string,
+  value: any,
+  listPaths: Set<string> = new Set(),
+): Record<string, any> {
   const keys = key.split("."); // "Bem.name" -> ["Bem","name"]
   let nested = value;
   for (let i = keys.length - 1; i >= 0; i--) {
     const pathPrefix = keys.slice(0, i + 1).join(".");
-    const inner = listPaths.has(pathPrefix) ? {some: nested} : nested;
-    nested = {[keys[i] as keyof typeof nested]: inner};
+    const inner = listPaths.has(pathPrefix) ? { some: nested } : nested;
+    nested = { [keys[i] as keyof typeof nested]: inner };
   }
   return nested;
 }
@@ -170,9 +190,9 @@ export function createWhereConditionQuery(
         };
       }
     } else if (type === "greaterThan") {
-      condition = {gt: normalizedValue};
+      condition = { gt: normalizedValue };
     } else if (type === "lessThan") {
-      condition = {lt: normalizedValue};
+      condition = { lt: normalizedValue };
     } else if (type === "in") {
       condition = {
         in: String(normalizedValue)
@@ -183,11 +203,11 @@ export function createWhereConditionQuery(
       const [min, max] = String(normalizedValue)
         .split("-")
         .map((v) => (isNumericField ? Number(v) : v));
-      condition = {gte: min, lte: max};
+      condition = { gte: min, lte: max };
     } else if (type === "isNull") {
-      condition = {equals: null};
+      condition = { equals: null };
     } else {
-      condition = {equals: normalizedValue};
+      condition = { equals: normalizedValue };
     }
 
     const nestedCondition = buildNestedCondition(key, condition, listPaths);
@@ -196,28 +216,30 @@ export function createWhereConditionQuery(
     else OR.push(nestedCondition);
   });
 
-  return {OR, NOT};
+  return { OR, NOT };
 }
 
-export function buildWhereFromQuery<T extends Object>(
+export function buildWhereFromQuery<T extends object>(
   query: Record<string, any>,
-  classBase: {getModel: () => T; tag: number},
+  classBase: { getModel: () => T; tag: number },
   customFields: Record<string, any> = {},
 ) {
   const classRecord = getModel(classBase.tag);
   const fieldTypes = getFieldTypes(classRecord.prototype);
-  const keys = Object.keys(fieldTypes as T extends {[key: string]: any} ? T : never);
+  const keys = Object.keys(fieldTypes as T extends { [key: string]: any } ? T : never);
 
   const conditions = [] as any;
 
   keys.forEach((key) => {
     if (query[key]) {
       const condition =
-        typeof query[key] === "object" ? {OR: [{[key]: query[key]}]} : createWhereCondition(query[key] as string, key, fieldTypes);
+        typeof query[key] === "object"
+          ? { OR: [{ [key]: query[key] }] }
+          : createWhereCondition(query[key] as string, key, fieldTypes);
 
       if (condition?.OR?.length > 0) {
         if (condition.OR.length > 1) {
-          conditions.push({OR: condition.OR});
+          conditions.push({ OR: condition.OR });
         } else {
           conditions.push(condition.OR[0]);
         }
@@ -225,9 +247,9 @@ export function buildWhereFromQuery<T extends Object>(
 
       if (condition?.NOT?.length > 0) {
         if (condition.NOT.length > 1) {
-          conditions.push({NOT: {OR: condition.NOT}});
+          conditions.push({ NOT: { OR: condition.NOT } });
         } else {
-          conditions.push({NOT: condition.NOT[0]});
+          conditions.push({ NOT: condition.NOT[0] });
         }
       }
     }
@@ -237,7 +259,7 @@ export function buildWhereFromQuery<T extends Object>(
 
   if (Object.keys(customFields).length > 0) {
     conditions.push({
-      AND: Object.entries(customFields).map(([key, value]) => ({[key]: value})),
+      AND: Object.entries(customFields).map(([key, value]) => ({ [key]: value })),
     });
   }
 
@@ -277,14 +299,14 @@ export const createWhereCondition = (value: any, key: string, modelBase: any) =>
     .map((v: string) => v.replace("!", ""))
     .filter(Boolean);
 
-  let result = {OR: [], NOT: []};
+  let result = { OR: [], NOT: [] };
 
   const buildCondition = (val: string, type: string, isNumeric: boolean, isString: boolean) => {
     // Lógica para detectar e tratar intervalos (ranges)
     const isRange = val.includes("-");
     if (isRange) {
       const [min, max] = isNumeric ? val.split("-").map(Number) : val.split("-");
-      return {[key]: {gte: min, lte: max}};
+      return { [key]: { gte: min, lte: max } };
     }
 
     // Lógica para outros tipos de filtro
@@ -296,7 +318,7 @@ export const createWhereCondition = (value: any, key: string, modelBase: any) =>
         const theFilterIs = OPTIONS_FILTER.find((f) => String(normalizedValue).includes(f));
         valueToUse = valueToUse.replace(theFilterIs || "", "").trim();
       }
-      return {[key]: isBooleanField ? Controller.safe.Boolean(valueToUse) : valueToUse};
+      return { [key]: isBooleanField ? Controller.safe.Boolean(valueToUse) : valueToUse };
     }
 
     // Filtros que usam objetos de operador (contains, startsWith, etc.)
@@ -319,10 +341,14 @@ export const createWhereCondition = (value: any, key: string, modelBase: any) =>
   };
 
   // Processar valores positivos
-  result.OR = positiveValues.map((val: string) => buildCondition(val, type, isNumericField, isStringField));
+  result.OR = positiveValues.map((val: string) =>
+    buildCondition(val, type, isNumericField, isStringField),
+  );
 
   // Processar valores negativos
-  result.NOT = negativeValues.map((val: string) => buildCondition(val, type, isNumericField, isStringField));
+  result.NOT = negativeValues.map((val: string) =>
+    buildCondition(val, type, isNumericField, isStringField),
+  );
 
   return result;
 };

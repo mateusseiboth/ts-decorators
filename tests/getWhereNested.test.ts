@@ -11,11 +11,16 @@
  * ponto não é válida para filtros de lista no Prisma — então chaves como
  * `posts.id` são ignoradas.
  */
-import {beforeEach, describe, expect, test} from "bun:test";
-import {clearLegacyWarnings} from "../src/decorators/_proxy";
-import {collectFieldMeta, collectFieldTypes} from "../src/functions/collectFieldsTypes";
-import {buildWhereFromQuery, createWhereConditionQuery, getWhere} from "../src/middlwares/getWhere";
-import {mockNext, mockReq, mockRes} from "./_helpers";
+import { beforeEach, describe, expect, test } from "bun:test";
+
+import { clearLegacyWarnings } from "../src/decorators/_proxy";
+import { collectFieldMeta, collectFieldTypes } from "../src/functions/collectFieldsTypes";
+import {
+  buildWhereFromQuery,
+  createWhereConditionQuery,
+  getWhere,
+} from "../src/middlwares/getWhere";
+import { mockNext, mockReq, mockRes } from "./_helpers";
 import {
   BlogModel,
   CityFieldModel,
@@ -29,11 +34,11 @@ import {
 
 /** Roda o getWhere e devolve o where montado. */
 function whereFor(model: any, query: Record<string, any>, customFields?: Record<string, any>) {
-  const req = mockReq({query});
+  const req = mockReq({ query });
   const res = mockRes();
   const next = mockNext();
   getWhere(req, res, next, model, customFields);
-  return {where: res.locals.where, next};
+  return { where: res.locals.where, next };
 }
 
 describe("getWhere - filtros aninhados (nested)", () => {
@@ -41,64 +46,66 @@ describe("getWhere - filtros aninhados (nested)", () => {
 
   describe("relação to-one via @NestedModel (RuaModel.bairro)", () => {
     test("monta objeto aninhado para bairro.name (equals)", () => {
-      const {where, next} = whereFor(RuaModel, {"bairro.name": "Centro"});
+      const { where, next } = whereFor(RuaModel, { "bairro.name": "Centro" });
       expect(next.called).toBe(true);
-      expect(where).toEqual({OR: [{bairro: {name: {equals: "Centro"}}}]});
+      expect(where).toEqual({ OR: [{ bairro: { name: { equals: "Centro" } } }] });
     });
 
     test("converte tipo do campo aninhado numérico (bairro.entidade)", () => {
-      const {where} = whereFor(RuaModel, {"bairro.entidade": "42"});
-      expect(where).toEqual({OR: [{bairro: {entidade: {equals: 42}}}]});
+      const { where } = whereFor(RuaModel, { "bairro.entidade": "42" });
+      expect(where).toEqual({ OR: [{ bairro: { entidade: { equals: 42 } } }] });
     });
 
     test("operador contains no campo aninhado vira modo insensitive", () => {
-      const {where} = whereFor(RuaModel, {"bairro.name": "contains:Cen"});
-      expect(where).toEqual({OR: [{bairro: {name: {contains: "Cen", mode: "insensitive"}}}]});
+      const { where } = whereFor(RuaModel, { "bairro.name": "contains:Cen" });
+      expect(where).toEqual({
+        OR: [{ bairro: { name: { contains: "Cen", mode: "insensitive" } } }],
+      });
     });
 
     test("negação (!) no campo aninhado vai para NOT", () => {
-      const {where} = whereFor(RuaModel, {"bairro.name": "!Centro"});
-      expect(where).toEqual({NOT: [{bairro: {name: {equals: "Centro"}}}]});
+      const { where } = whereFor(RuaModel, { "bairro.name": "!Centro" });
+      expect(where).toEqual({ NOT: [{ bairro: { name: { equals: "Centro" } } }] });
     });
 
     test("múltiplos negativos no campo aninhado agrupam em NOT", () => {
-      const {where} = whereFor(RuaModel, {"bairro.name": "!A;!B"});
+      const { where } = whereFor(RuaModel, { "bairro.name": "!A;!B" });
       expect(where).toEqual({
-        NOT: [{bairro: {name: {equals: "A"}}}, {bairro: {name: {equals: "B"}}}],
+        NOT: [{ bairro: { name: { equals: "A" } } }, { bairro: { name: { equals: "B" } } }],
       });
     });
 
     test("múltiplos valores (;) no campo aninhado geram múltiplos OR", () => {
-      const {where} = whereFor(RuaModel, {"bairro.name": "Centro;Sul"});
+      const { where } = whereFor(RuaModel, { "bairro.name": "Centro;Sul" });
       expect(where).toEqual({
-        OR: [{bairro: {name: {equals: "Centro"}}}, {bairro: {name: {equals: "Sul"}}}],
+        OR: [{ bairro: { name: { equals: "Centro" } } }, { bairro: { name: { equals: "Sul" } } }],
       });
     });
   });
 
   describe("relação to-one via @Field(Model) (UserModel.profile)", () => {
     test("monta objeto aninhado para profile.bio", () => {
-      const {where} = whereFor(UserModel, {"profile.bio": "dev"});
-      expect(where).toEqual({OR: [{profile: {bio: {equals: "dev"}}}]});
+      const { where } = whereFor(UserModel, { "profile.bio": "dev" });
+      expect(where).toEqual({ OR: [{ profile: { bio: { equals: "dev" } } }] });
     });
 
     test("campo aninhado numérico é convertido para Number", () => {
-      const {where} = whereFor(UserModel, {"profile.followers": "42"});
-      expect(where).toEqual({OR: [{profile: {followers: {equals: 42}}}]});
+      const { where } = whereFor(UserModel, { "profile.followers": "42" });
+      expect(where).toEqual({ OR: [{ profile: { followers: { equals: 42 } } }] });
     });
 
     test("greaterThan no campo aninhado numérico", () => {
-      const {where} = whereFor(UserModel, {"profile.followers": "greaterThan:10"});
-      expect(where).toEqual({OR: [{profile: {followers: {gt: 10}}}]});
+      const { where } = whereFor(UserModel, { "profile.followers": "greaterThan:10" });
+      expect(where).toEqual({ OR: [{ profile: { followers: { gt: 10 } } }] });
     });
 
     test("range numérico no campo aninhado é expandido em OR", () => {
-      const {where} = whereFor(UserModel, {"profile.followers": "1-3"});
+      const { where } = whereFor(UserModel, { "profile.followers": "1-3" });
       expect(where).toEqual({
         OR: [
-          {profile: {followers: {equals: 1}}},
-          {profile: {followers: {equals: 2}}},
-          {profile: {followers: {equals: 3}}},
+          { profile: { followers: { equals: 1 } } },
+          { profile: { followers: { equals: 2 } } },
+          { profile: { followers: { equals: 3 } } },
         ],
       });
     });
@@ -106,51 +113,56 @@ describe("getWhere - filtros aninhados (nested)", () => {
 
   describe("relação to-many via @Field([Model]) (UserModel.posts) usa `some`", () => {
     test("posts.id monta filtro de lista com some (sintaxe Prisma)", () => {
-      const {where, next} = whereFor(UserModel, {"posts.id": "1"});
+      const { where, next } = whereFor(UserModel, { "posts.id": "1" });
       expect(next.called).toBe(true);
-      expect(where).toEqual({OR: [{posts: {some: {id: {equals: "1"}}}}]});
+      expect(where).toEqual({ OR: [{ posts: { some: { id: { equals: "1" } } } }] });
     });
 
     test("operador contains dentro de some", () => {
-      const {where} = whereFor(UserModel, {"posts.title": "contains:hi"});
-      expect(where).toEqual({OR: [{posts: {some: {title: {contains: "hi", mode: "insensitive"}}}}]});
+      const { where } = whereFor(UserModel, { "posts.title": "contains:hi" });
+      expect(where).toEqual({
+        OR: [{ posts: { some: { title: { contains: "hi", mode: "insensitive" } } } }],
+      });
     });
 
     test("campo numérico convertido dentro de some", () => {
-      const {where} = whereFor(UserModel, {"posts.views": "greaterThan:5"});
-      expect(where).toEqual({OR: [{posts: {some: {views: {gt: 5}}}}]});
+      const { where } = whereFor(UserModel, { "posts.views": "greaterThan:5" });
+      expect(where).toEqual({ OR: [{ posts: { some: { views: { gt: 5 } } } }] });
     });
 
     test("negação em campo de lista vai para NOT mantendo some", () => {
-      const {where} = whereFor(UserModel, {"posts.id": "!5"});
-      expect(where).toEqual({NOT: [{posts: {some: {id: {equals: "5"}}}}]});
+      const { where } = whereFor(UserModel, { "posts.id": "!5" });
+      expect(where).toEqual({ NOT: [{ posts: { some: { id: { equals: "5" } } } }] });
     });
   });
 
   describe("combinação de campos aninhados e diretos", () => {
     test("campo direto + campo aninhado são agrupados em AND", () => {
-      const {where} = whereFor(RuaModel, {name: "RuaX", "bairro.id": "1"});
+      const { where } = whereFor(RuaModel, { name: "RuaX", "bairro.id": "1" });
       expect(where.AND).toBeDefined();
       expect(where.AND).toEqual(
-        expect.arrayContaining([{OR: [{name: {equals: "RuaX"}}]}, {OR: [{bairro: {id: {equals: "1"}}}]}]),
+        expect.arrayContaining([
+          { OR: [{ name: { equals: "RuaX" } }] },
+          { OR: [{ bairro: { id: { equals: "1" } } }] },
+        ]),
       );
     });
 
     test("dois campos aninhados do mesmo pai geram condições AND separadas", () => {
-      const {where} = whereFor(RuaModel, {"bairro.id": "1", "bairro.name": "Centro"});
+      const { where } = whereFor(RuaModel, { "bairro.id": "1", "bairro.name": "Centro" });
       expect(where.AND).toBeDefined();
       expect(where.AND).toEqual(
         expect.arrayContaining([
-          {OR: [{bairro: {id: {equals: "1"}}}]},
-          {OR: [{bairro: {name: {equals: "Centro"}}}]},
+          { OR: [{ bairro: { id: { equals: "1" } } }] },
+          { OR: [{ bairro: { name: { equals: "Centro" } } }] },
         ]),
       );
     });
 
     test("aninhado + customFields combina OR aninhado com AND de customFields", () => {
-      const {where} = whereFor(UserModel, {"profile.bio": "dev"}, {active: true});
-      expect(where.OR).toEqual([{profile: {bio: {equals: "dev"}}}]);
-      expect(where.AND).toEqual([{active: true}]);
+      const { where } = whereFor(UserModel, { "profile.bio": "dev" }, { active: true });
+      expect(where.OR).toEqual([{ profile: { bio: { equals: "dev" } } }]);
+      expect(where.AND).toEqual([{ active: true }]);
     });
   });
 
@@ -174,7 +186,7 @@ describe("getWhere - filtros aninhados (nested)", () => {
     });
 
     test("collectFieldMeta registra os dot-paths de relações to-many em listPaths", () => {
-      const {listPaths} = collectFieldMeta(new UserModel());
+      const { listPaths } = collectFieldMeta(new UserModel());
       expect(listPaths.has("posts")).toBe(true);
       // relação to-one não entra em listPaths
       expect(listPaths.has("profile")).toBe(false);
@@ -183,14 +195,16 @@ describe("getWhere - filtros aninhados (nested)", () => {
 
   describe("createWhereConditionQuery com chave aninhada (dot key)", () => {
     test("monta objeto aninhado a partir da chave com ponto", () => {
-      const result = createWhereConditionQuery("Centro", "bairro.name", {"bairro.name": "string"});
-      expect(result.OR).toEqual([{bairro: {name: {equals: "Centro"}}}]);
+      const result = createWhereConditionQuery("Centro", "bairro.name", {
+        "bairro.name": "string",
+      });
+      expect(result.OR).toEqual([{ bairro: { name: { equals: "Centro" } } }]);
       expect(result.NOT).toEqual([]);
     });
 
     test("chave com múltiplos níveis aninha na ordem correta", () => {
-      const result = createWhereConditionQuery("x", "a.b.c", {"a.b.c": "string"});
-      expect(result.OR).toEqual([{a: {b: {c: {equals: "x"}}}}]);
+      const result = createWhereConditionQuery("x", "a.b.c", { "a.b.c": "string" });
+      expect(result.OR).toEqual([{ a: { b: { c: { equals: "x" } } } }]);
     });
   });
 
@@ -199,13 +213,13 @@ describe("getWhere - filtros aninhados (nested)", () => {
     // O output do getWhere deve ser IDÊNTICO — garante que a nova forma
     // @Field(Model) não muda a montagem do where em relação ao @NestedModel.
     const queries: Array<[string, Record<string, any>]> = [
-      ["equals", {"bairro.name": "Centro"}],
-      ["contains", {"bairro.name": "contains:Cen"}],
-      ["numérico", {"bairro.entidade": "42"}],
-      ["greaterThan", {"bairro.entidade": "greaterThan:5"}],
-      ["negação", {"bairro.name": "!Centro"}],
-      ["múltiplos OR", {"bairro.name": "Centro;Sul"}],
-      ["aninhado + direto", {name: "RuaX", "bairro.name": "Centro"}],
+      ["equals", { "bairro.name": "Centro" }],
+      ["contains", { "bairro.name": "contains:Cen" }],
+      ["numérico", { "bairro.entidade": "42" }],
+      ["greaterThan", { "bairro.entidade": "greaterThan:5" }],
+      ["negação", { "bairro.name": "!Centro" }],
+      ["múltiplos OR", { "bairro.name": "Centro;Sul" }],
+      ["aninhado + direto", { name: "RuaX", "bairro.name": "Centro" }],
     ];
 
     for (const [label, query] of queries) {
@@ -226,26 +240,26 @@ describe("getWhere - filtros aninhados (nested)", () => {
 
   describe("aninhamento profundo (multi-nível, 3 níveis)", () => {
     test("@Field encadeado monta where aninhado em 3 níveis (state.country.name)", () => {
-      const {where} = whereFor(CityFieldModel, {"state.country.name": "Brasil"});
-      expect(where).toEqual({OR: [{state: {country: {name: {equals: "Brasil"}}}}]});
+      const { where } = whereFor(CityFieldModel, { "state.country.name": "Brasil" });
+      expect(where).toEqual({ OR: [{ state: { country: { name: { equals: "Brasil" } } } }] });
     });
 
     test("campo numérico no 3º nível com operador (state.country.population)", () => {
-      const {where} = whereFor(CityFieldModel, {"state.country.population": "greaterThan:100"});
-      expect(where).toEqual({OR: [{state: {country: {population: {gt: 100}}}}]});
+      const { where } = whereFor(CityFieldModel, { "state.country.population": "greaterThan:100" });
+      expect(where).toEqual({ OR: [{ state: { country: { population: { gt: 100 } } } }] });
     });
 
     test("nível intermediário também filtra (state.name)", () => {
-      const {where} = whereFor(CityFieldModel, {"state.name": "SP"});
-      expect(where).toEqual({OR: [{state: {name: {equals: "SP"}}}]});
+      const { where } = whereFor(CityFieldModel, { "state.name": "SP" });
+      expect(where).toEqual({ OR: [{ state: { name: { equals: "SP" } } }] });
     });
 
     test("@Field e @NestedModel encadeados produzem o MESMO where profundo", () => {
-      const query = {"state.country.name": "Brasil"};
+      const query = { "state.country.name": "Brasil" };
       const field = whereFor(CityFieldModel, query).where;
       const nested = whereFor(CityNestedModel, query).where;
       expect(field).toEqual(nested);
-      expect(field).toEqual({OR: [{state: {country: {name: {equals: "Brasil"}}}}]});
+      expect(field).toEqual({ OR: [{ state: { country: { name: { equals: "Brasil" } } } }] });
     });
 
     test("collectFieldTypes expande as mesmas chaves profundas nas duas cadeias", () => {
@@ -259,18 +273,25 @@ describe("getWhere - filtros aninhados (nested)", () => {
 
   describe("listas aninhadas em profundidade (Prisma `some` encadeado)", () => {
     test("to-one contendo lista: author.posts.title -> author.posts.some", () => {
-      const {where} = whereFor(BlogModel, {"author.posts.title": "Hello"});
-      expect(where).toEqual({OR: [{author: {posts: {some: {title: {equals: "Hello"}}}}}]});
+      const { where } = whereFor(BlogModel, { "author.posts.title": "Hello" });
+      expect(where).toEqual({
+        OR: [{ author: { posts: { some: { title: { equals: "Hello" } } } } }],
+      });
     });
 
     test("lista contendo lista: articles.tags.label -> some encadeado", () => {
-      const {where} = whereFor(FeedModel, {"articles.tags.label": "js"});
-      expect(where).toEqual({OR: [{articles: {some: {tags: {some: {label: {equals: "js"}}}}}}]});
+      const { where } = whereFor(FeedModel, { "articles.tags.label": "js" });
+      expect(where).toEqual({
+        OR: [{ articles: { some: { tags: { some: { label: { equals: "js" } } } } } }],
+      });
     });
 
     test("listPaths captura os caminhos to-many em cada nível", () => {
       expect([...collectFieldMeta(new BlogModel()).listPaths]).toEqual(["author.posts"]);
-      expect([...collectFieldMeta(new FeedModel()).listPaths].sort()).toEqual(["articles", "articles.tags"]);
+      expect([...collectFieldMeta(new FeedModel()).listPaths].sort()).toEqual([
+        "articles",
+        "articles.tags",
+      ]);
     });
   });
 
@@ -280,37 +301,37 @@ describe("getWhere - filtros aninhados (nested)", () => {
     // campo existente nunca entra no where — protege contra colunas inválidas
     // no Prisma.
     test("campo direto inexistente é ignorado", () => {
-      const {where} = whereFor(UserModel, {nonexistent: "x"});
+      const { where } = whereFor(UserModel, { nonexistent: "x" });
       expect(where).toEqual({});
     });
 
     test("campo to-one inexistente (profile.fake) é ignorado", () => {
-      const {where} = whereFor(UserModel, {"profile.fake": "x"});
+      const { where } = whereFor(UserModel, { "profile.fake": "x" });
       expect(where).toEqual({});
     });
 
     test("campo to-many inexistente (posts.fake) é ignorado", () => {
-      const {where} = whereFor(UserModel, {"posts.fake": "x"});
+      const { where } = whereFor(UserModel, { "posts.fake": "x" });
       expect(where).toEqual({});
     });
 
     test("caminho aninhado inexistente em profundidade (state.country.fake) é ignorado", () => {
-      const {where} = whereFor(CityFieldModel, {"state.country.fake": "x"});
+      const { where } = whereFor(CityFieldModel, { "state.country.fake": "x" });
       expect(where).toEqual({});
     });
 
     test("relação inexistente como prefixo (fake.name) é ignorada", () => {
-      const {where} = whereFor(RuaModel, {"fake.name": "x"});
+      const { where } = whereFor(RuaModel, { "fake.name": "x" });
       expect(where).toEqual({});
     });
 
     test("campo válido + campo inexistente: só o válido entra no where", () => {
-      const {where} = whereFor(UserModel, {name: "Ana", "posts.fake": "x"});
-      expect(where).toEqual({OR: [{name: {equals: "Ana"}}]});
+      const { where } = whereFor(UserModel, { name: "Ana", "posts.fake": "x" });
+      expect(where).toEqual({ OR: [{ name: { equals: "Ana" } }] });
     });
 
     test("campos inexistentes não aparecem entre as chaves achatadas", () => {
-      const {types} = collectFieldMeta(new UserModel());
+      const { types } = collectFieldMeta(new UserModel());
       expect(types["posts.fake"]).toBeUndefined();
       expect(types["profile.fake"]).toBeUndefined();
       expect(types["nonexistent"]).toBeUndefined();
@@ -319,12 +340,12 @@ describe("getWhere - filtros aninhados (nested)", () => {
 
   describe("buildWhereFromQuery com valor objeto (relação aninhada já montada)", () => {
     test("valor objeto é repassado diretamente para o where", () => {
-      const where = buildWhereFromQuery({bairro: {name: "Centro"}}, RuaModel);
-      expect(where).toEqual({bairro: {name: "Centro"}});
+      const where = buildWhereFromQuery({ bairro: { name: "Centro" } }, RuaModel);
+      expect(where).toEqual({ bairro: { name: "Centro" } });
     });
 
     test("chave com ponto NÃO é reconhecida (getFieldTypes não achata) - where vazio", () => {
-      const where = buildWhereFromQuery({"bairro.name": "Centro"}, RuaModel);
+      const where = buildWhereFromQuery({ "bairro.name": "Centro" }, RuaModel);
       expect(where).toEqual({});
     });
   });

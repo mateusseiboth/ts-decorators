@@ -26,10 +26,13 @@
     "noPropertyAccessFromIndexSignature": false,
     // Decorators
     "experimentalDecorators": true,
-    "emitDecoratorMetadata": true
+    "emitDecoratorMetadata": true,
+    "types": [
+      "bun"
+    ],
   },
   "include": [
-    "bun-types",
     "src",
+    "index.ts",
   ],
 }

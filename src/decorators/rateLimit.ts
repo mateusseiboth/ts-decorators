@@ -17,8 +17,9 @@
  *
  */
 
-import type {NextFunction, Request, Response} from "express";
-import {isDecoratorContext, warnLegacy} from "./_proxy";
+import type { NextFunction, Request, Response } from "express";
+
+import { isDecoratorContext, warnLegacy } from "./_proxy";
 
 export interface RateLimitOptions {
   /** Número máximo de requisições na janela. Default: 100 */
@@ -87,7 +88,7 @@ function checkLimit(
   key: string,
   maxRequests: number,
   windowMs: number,
-): {allowed: boolean; remaining: number; resetAt: number} {
+): { allowed: boolean; remaining: number; resetAt: number } {
   ensureCleanup();
 
   const store = getScopeStore(scope);
@@ -95,7 +96,7 @@ function checkLimit(
   let entry = store.get(key);
 
   if (!entry || entry.resetAt < now) {
-    entry = {count: 0, resetAt: now + windowMs};
+    entry = { count: 0, resetAt: now + windowMs };
     store.set(key, entry);
   }
 
@@ -108,7 +109,11 @@ function checkLimit(
   };
 }
 
-function setRateLimitHeaders(res: Response, result: {remaining: number; resetAt: number}, maxRequests: number) {
+function setRateLimitHeaders(
+  res: Response,
+  result: { remaining: number; resetAt: number },
+  maxRequests: number,
+) {
   res.setHeader("X-RateLimit-Limit", maxRequests);
   res.setHeader("X-RateLimit-Remaining", result.remaining);
   res.setHeader("X-RateLimit-Reset", Math.ceil(result.resetAt / 1000));
@@ -123,9 +128,12 @@ export function clearRateLimitStore() {
  * Decorator de classe: aplica rate limit a todos os métodos que recebem (req, res).
  */
 export function RateLimit(options?: RateLimitOptions) {
-  const opts = {...DEFAULT_OPTIONS, ...options};
+  const opts = { ...DEFAULT_OPTIONS, ...options };
 
-  return function <T extends {new (...args: any[]): any}>(constructor: T, context?: ClassDecoratorContext): T {
+  return function <T extends { new (...args: any[]): any }>(
+    constructor: T,
+    context?: ClassDecoratorContext,
+  ): T {
     if (!context || !isDecoratorContext(context)) {
       warnLegacy("RateLimit");
     }
@@ -174,7 +182,7 @@ export function RateLimit(options?: RateLimitOptions) {
  * Decorator de método individual: rate limit granular por endpoint.
  */
 export function RateLimitMethod(options?: RateLimitOptions) {
-  const opts = {...DEFAULT_OPTIONS, ...options};
+  const opts = { ...DEFAULT_OPTIONS, ...options };
 
   return function (...args: any[]) {
     // New TC39 method decorator: (method, context)
@@ -246,7 +254,7 @@ export function RateLimitMethod(options?: RateLimitOptions) {
  * router.use(rateLimitMiddleware({ maxRequests: 100, windowMs: 60_000 }));
  */
 export function rateLimitMiddleware(options?: RateLimitOptions) {
-  const opts = {...DEFAULT_OPTIONS, ...options};
+  const opts = { ...DEFAULT_OPTIONS, ...options };
 
   return function (req: Request, res: Response, next: NextFunction) {
     const key = opts.keyGenerator(req, res);

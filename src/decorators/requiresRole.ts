@@ -13,7 +13,7 @@
  *   async aprovar(req, res) { ... }
  */
 
-import {makeMethodDecorator} from "./_method";
+import { makeMethodDecorator } from "./_method";
 
 export interface RequiresRoleOptions {
   /** Mensagem retornada no 403. */
@@ -43,7 +43,7 @@ export function RequiresRole(roles: string | string[], options?: RequiresRoleOpt
       const allowed = required.some((role) => userRoles.includes(role));
 
       if (!allowed) {
-        return res.status(403).json({message, code: "FORBIDDEN", requiredRoles: required});
+        return res.status(403).json({ message, code: "FORBIDDEN", requiredRoles: required });
       }
 
       return original.call(this, req, res, ...rest);

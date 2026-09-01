@@ -18,7 +18,7 @@ export interface HandlerContext {
   entity?: string | number;
   exercicio?: number;
   requestId?: string;
-  user?: {id?: string; userId?: string; username?: string; [key: string]: any};
+  user?: { id?: string; userId?: string; username?: string; [key: string]: any };
   [key: string]: any;
 }
 
@@ -26,7 +26,9 @@ type ContextGetter = () => HandlerContext | undefined;
 type ContextRequirer = (message?: string) => HandlerContext;
 
 let _getContext: ContextGetter = () => undefined;
-let _requireContext: ContextRequirer = (msg = "[@mateusseiboth/ts-decorators] Contexto não disponível. Chame setHandlerContext() no bootstrap.") => {
+let _requireContext: ContextRequirer = (
+  msg = "[@mateusseiboth/ts-decorators] Contexto não disponível. Chame setHandlerContext() no bootstrap.",
+) => {
   throw new Error(msg);
 };
 

@@ -11,7 +11,7 @@
  * ```
  */
 
-import {EventEmitter} from "events";
+import { EventEmitter } from "events";
 
 export type EventHandler = (payload: any) => void | Promise<void>;
 

@@ -1,4 +1,4 @@
-import {getCompanyIdInjector, type CompanyIdInjector} from "../handlers/companyId";
+import { getCompanyIdInjector, type CompanyIdInjector } from "../handlers/companyId";
 
 export interface IResponsePaginate<T> {
   data: {
@@ -21,7 +21,8 @@ export function convertBigIntValues<T>(data: T): T {
 
   if (data !== null && typeof data === "object") {
     return Object.entries(data).reduce((acc, [key, value]) => {
-      acc[key as keyof T] = typeof value === "bigint" ? value.toString() : convertBigIntValues(value);
+      acc[key as keyof T] =
+        typeof value === "bigint" ? value.toString() : convertBigIntValues(value);
       return acc;
     }, {} as T);
   }
@@ -31,7 +32,15 @@ export function convertBigIntValues<T>(data: T): T {
 
 export async function executePrismaQuery<T>(
   objectPrismaQuery: any,
-  options: any & {skip?: number; take?: number; page?: number; where?: any; include?: any; distinct?: any; select?: any},
+  options: any & {
+    skip?: number;
+    take?: number;
+    page?: number;
+    where?: any;
+    include?: any;
+    distinct?: any;
+    select?: any;
+  },
 ): Promise<IResponsePaginate<T>> {
   const paginate = {
     count: 0,
@@ -42,7 +51,7 @@ export async function executePrismaQuery<T>(
 
   const ids = await objectPrismaQuery.findMany({
     where: options.where,
-    select: {id: true},
+    select: { id: true },
     orderBy: options.orderBy,
     skip: options.skip,
     take: options.take,
@@ -51,13 +60,13 @@ export async function executePrismaQuery<T>(
   if (!ids.length) {
     return {
       data: [] as any,
-      paginate: {totalPage: 0, page: 1, total: 0},
+      paginate: { totalPage: 0, page: 1, total: 0 },
     } as any;
   }
 
   const data = await objectPrismaQuery.findMany({
     where: {
-      id: {in: ids.map((i: any) => i.id)},
+      id: { in: ids.map((i: any) => i.id) },
     },
     orderBy: options.orderBy,
     include: options.include,
@@ -94,6 +103,10 @@ export async function executePrismaQuery<T>(
  * Troque globalmente com `setCompanyIdInjector(fn)` ou pontualmente passando
  * `injector` no terceiro parâmetro.
  */
-export function addCompanyIdToTransaction(tx: any, companyId: string, injector?: CompanyIdInjector) {
+export function addCompanyIdToTransaction(
+  tx: any,
+  companyId: string,
+  injector?: CompanyIdInjector,
+) {
   return (injector ?? getCompanyIdInjector())(tx, companyId);
 }

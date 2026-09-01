@@ -1,5 +1,7 @@
-import {describe, expect, test} from "bun:test";
-import type {RequestHandler} from "express";
+import { describe, expect, test } from "bun:test";
+
+import type { RequestHandler } from "express";
+
 import {
   All,
   Delete,
@@ -15,10 +17,10 @@ import {
 describe("HTTP method decorators", () => {
   test("registra verbo, path e options na metadata", () => {
     class Ctrl {
-      @Get(":id/carne", {action: "GET"})
+      @Get(":id/carne", { action: "GET" })
       getById() {}
 
-      @Post("/", {action: "CREATE", use: "routeWithExtra"})
+      @Post("/", { action: "CREATE", use: "routeWithExtra" })
       create() {}
     }
 
@@ -36,11 +38,11 @@ describe("HTTP method decorators", () => {
 
   test("herda rotas de uma classe base e subclasse tem precedência", () => {
     class Base {
-      @Get("/:id", {action: "GET"})
+      @Get("/:id", { action: "GET" })
       getById() {}
     }
     class Child extends Base {
-      @Post("/", {action: "CREATE"})
+      @Post("/", { action: "CREATE" })
       create() {}
     }
 
@@ -65,14 +67,16 @@ describe("HTTP method decorators", () => {
   });
 
   test("applyControllerRoutes registra no builder resolvido e aplica o wrap", () => {
-    const calls: Array<{method: string; path: string; handlers: RequestHandler[]}> = [];
+    const calls: Array<{ method: string; path: string; handlers: RequestHandler[] }> = [];
     const makeBuilder = (label: string) =>
       new Proxy(
         {},
         {
-          get: (_t, method: string) => (path: string, ...handlers: RequestHandler[]) => {
-            calls.push({method: `${label}:${method}`, path, handlers});
-          },
+          get:
+            (_t, method: string) =>
+            (path: string, ...handlers: RequestHandler[]) => {
+              calls.push({ method: `${label}:${method}`, path, handlers });
+            },
         },
       ) as any;
 
@@ -80,9 +84,9 @@ describe("HTTP method decorators", () => {
     const paginate = makeBuilder("paginate");
 
     class Ctrl {
-      @Get("/", {use: "routeWithPaginate", action: "LIST"})
+      @Get("/", { use: "routeWithPaginate", action: "LIST" })
       list() {}
-      @Post("/:id", {action: "CREATE"})
+      @Post("/:id", { action: "CREATE" })
       create() {}
     }
 
@@ -107,7 +111,10 @@ describe("HTTP method decorators", () => {
     const builder = new Proxy(
       {},
       {
-        get: () => (_path: string, ...handlers: RequestHandler[]) => captured.push(...handlers),
+        get:
+          () =>
+          (_path: string, ...handlers: RequestHandler[]) =>
+            captured.push(...handlers),
       },
     ) as any;
 

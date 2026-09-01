@@ -1,5 +1,6 @@
-import {afterEach, describe, expect, test} from "bun:test";
-import {Cron, cronMatches, startCronJobs, stopAllCronJobs} from "../src/decorators/cron";
+import { afterEach, describe, expect, test } from "bun:test";
+
+import { Cron, cronMatches, startCronJobs, stopAllCronJobs } from "../src/decorators/cron";
 
 const delay = (ms: number) => new Promise((r) => setTimeout(r, ms));
 

@@ -1,8 +1,9 @@
-import {afterEach, beforeEach, describe, expect, test} from "bun:test";
-import {clearLegacyWarnings} from "../src/decorators/_proxy";
-import {AutoConvert} from "../src/decorators/autoConvert";
-import {captureLogs, captureWarnings, fakeMethodContext} from "./_helpers";
-import {SimpleModel} from "./_models";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+
+import { clearLegacyWarnings } from "../src/decorators/_proxy";
+import { AutoConvert } from "../src/decorators/autoConvert";
+import { captureLogs, captureWarnings, fakeMethodContext } from "./_helpers";
+import { SimpleModel } from "./_models";
 
 describe("AutoConvert", () => {
   let warnCap: ReturnType<typeof captureWarnings>;
@@ -21,44 +22,44 @@ describe("AutoConvert", () => {
   describe("via setData no BaseModel (legacy)", () => {
     test("converte string para number", () => {
       const model = new SimpleModel();
-      model.setData({age: "25", name: "Test"});
+      model.setData({ age: "25", name: "Test" });
       expect(model.age).toBe(25);
     });
 
     test("converte string para boolean", () => {
       const model = new SimpleModel();
-      model.setData({isAdmin: "true"});
+      model.setData({ isAdmin: "true" });
       expect(model.isAdmin).toBe(true);
     });
 
     test("converte 'false' para false", () => {
       const model = new SimpleModel();
-      model.setData({isAdmin: "false"});
+      model.setData({ isAdmin: "false" });
       expect(model.isAdmin).toBe(false);
     });
 
     test("converte number NaN para null", () => {
       const model = new SimpleModel();
-      model.setData({age: "abc"});
+      model.setData({ age: "abc" });
       expect(model.age).toBeNull();
     });
 
     test("converte null/undefined para null", () => {
       const model = new SimpleModel();
-      model.setData({age: null, name: undefined});
+      model.setData({ age: null, name: undefined });
       expect(model.age).toBeNull();
       expect(model.name).toBeNull();
     });
 
     test("converte string de data para Date", () => {
       const model = new SimpleModel();
-      model.setData({birthDate: "2024-01-15"});
+      model.setData({ birthDate: "2024-01-15" });
       expect(model.birthDate).toBeInstanceOf(Date);
     });
 
     test("mantém campos não no model intocados", () => {
       const model = new SimpleModel();
-      model.setData({campoFake: "xyz"});
+      model.setData({ campoFake: "xyz" });
       expect((model as any).campoFake).toBeUndefined();
     });
   });
@@ -73,7 +74,7 @@ describe("AutoConvert", () => {
 
       // Executa bound a um SimpleModel (para ter os field types)
       const instance = new SimpleModel();
-      const result = wrapped.call(instance, {age: "42", name: 123});
+      const result = wrapped.call(instance, { age: "42", name: 123 });
       expect(result.age).toBe(42);
       expect(result.name).toBe("123");
     });

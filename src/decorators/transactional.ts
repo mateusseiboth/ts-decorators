@@ -26,9 +26,10 @@
  *
  */
 
-import type {NextFunction, Request, Response} from "express";
-import type {CompanyIdInjector} from "../handlers/companyId";
-import {isDecoratorContext, warnLegacy} from "./_proxy";
+import type { NextFunction, Request, Response } from "express";
+
+import type { CompanyIdInjector } from "../handlers/companyId";
+import { isDecoratorContext, warnLegacy } from "./_proxy";
 
 type PrismaLike = {
   $transaction: (fn: (tx: any) => Promise<any>, options?: any) => Promise<any>;
@@ -50,7 +51,7 @@ export function setTransactionalCompanyFn(fn: AddCompanyFn) {
  */
 export function Transactional(
   prisma: PrismaLike,
-  options?: {timeout?: number; maxWait?: number; companyIdInjector?: CompanyIdInjector},
+  options?: { timeout?: number; maxWait?: number; companyIdInjector?: CompanyIdInjector },
 ) {
   return function (req: Request, res: Response, next: NextFunction) {
     prisma
@@ -100,7 +101,10 @@ export function Transactional(
         // Se já respondeu, não faz nada (rollback já aconteceu)
         if (res.headersSent) {
           if (!(err instanceof TransactionAbortError)) {
-            console.error("[@mateusseiboth/ts-commons] Transactional: Erro pós-resposta (rollback executado):", err.message);
+            console.error(
+              "[@mateusseiboth/ts-commons] Transactional: Erro pós-resposta (rollback executado):",
+              err.message,
+            );
           }
           return;
         }
@@ -113,7 +117,10 @@ export function Transactional(
  * Decorator de classe: envolve métodos de escrita com savepoints.
  * Requer que this.DAO.tx já seja uma TransactionClient.
  */
-export function TransactionalClass<T extends {new (...args: any[]): any}>(constructor: T, context?: ClassDecoratorContext): T {
+export function TransactionalClass<T extends { new (...args: any[]): any }>(
+  constructor: T,
+  context?: ClassDecoratorContext,
+): T {
   if (!context || !isDecoratorContext(context)) {
     warnLegacy("TransactionalClass");
   }
@@ -136,7 +143,9 @@ export function TransactionalClass<T extends {new (...args: any[]): any}>(constr
         const savepointName = `sp_${methodName}_${Date.now()}`;
         try {
           await tx.$executeRawUnsafe(`SAVEPOINT "${savepointName}"`);
-          console.log(`[@mateusseiboth/ts-commons] Transactional: ${constructor.name}.${methodName} → SAVEPOINT criado (${savepointName})`);
+          console.log(
+            `[@mateusseiboth/ts-commons] Transactional: ${constructor.name}.${methodName} → SAVEPOINT criado (${savepointName})`,
+          );
           const result = await originalMethod.call(this, ...args);
           await tx.$executeRawUnsafe(`RELEASE SAVEPOINT "${savepointName}"`);
           console.log(

@@ -1,6 +1,7 @@
 import "reflect-metadata";
-import type {ZodSchema} from "zod";
-import {isDecoratorContext, warnLegacy} from "./_proxy";
+import type { ZodSchema } from "zod";
+
+import { isDecoratorContext, warnLegacy } from "./_proxy";
 
 export interface IWithValidation<T = unknown> {
   schema?: ZodSchema<T>;
@@ -15,13 +16,20 @@ export interface IWithValidation<T = unknown> {
  * NÃO faz nada.
  */
 export function Validate(_schema: ZodSchema) {
-  return function (_target: any, _propertyKey: string | symbol | undefined, _parameterIndex: number) {
+  return function (
+    _target: any,
+    _propertyKey: string | symbol | undefined,
+    _parameterIndex: number,
+  ) {
     warnLegacy("Validate");
   };
 }
 
 function createValidationDecorator<TSchema = unknown>(schema?: ZodSchema<TSchema>) {
-  return function <T extends new (...args: any[]) => {}>(OriginalConstructor: T, context?: ClassDecoratorContext) {
+  return function <T extends new (...args: any[]) => {}>(
+    OriginalConstructor: T,
+    context?: ClassDecoratorContext,
+  ) {
     if (!context || !isDecoratorContext(context)) {
       warnLegacy("WithValidation");
     }
@@ -35,7 +43,9 @@ function createValidationDecorator<TSchema = unknown>(schema?: ZodSchema<TSchema
         const finalSchema = customSchema ?? this.schema ?? (this.constructor as any).schema;
 
         if (!finalSchema) {
-          throw new Error(`[WithValidation] No validation schema defined for "${this.constructor.name}".`);
+          throw new Error(
+            `[WithValidation] No validation schema defined for "${this.constructor.name}".`,
+          );
         }
 
         return finalSchema.parse(this);

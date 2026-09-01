@@ -1,7 +1,9 @@
-import {afterEach, describe, expect, test} from "bun:test";
+import { afterEach, describe, expect, test } from "bun:test";
+
 import "reflect-metadata";
-import {container} from "../src/decorators/container";
-import {Scoped, Singleton, Transient} from "../src/decorators/lifecycle";
+
+import { container } from "../src/decorators/container";
+import { Scoped, Singleton, Transient } from "../src/decorators/lifecycle";
 
 describe("Lifecycle decorators + container scopes", () => {
   afterEach(() => {

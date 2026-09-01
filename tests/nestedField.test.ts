@@ -1,10 +1,11 @@
-import {beforeEach, describe, expect, test} from "bun:test";
-import {clearLegacyWarnings} from "../src/decorators/_proxy";
-import {getNestedModelMeta} from "../src/decorators/nestedModel";
-import {collectFieldTypes} from "../src/functions/collectFieldsTypes";
-import {buildWhereFromQuery, getWhere} from "../src/middlwares/getWhere";
-import {mockNext, mockReq, mockRes} from "./_helpers";
-import {PostModel, ProfileModel, RuaModel, UserModel} from "./_models";
+import { beforeEach, describe, expect, test } from "bun:test";
+
+import { clearLegacyWarnings } from "../src/decorators/_proxy";
+import { getNestedModelMeta } from "../src/decorators/nestedModel";
+import { collectFieldTypes } from "../src/functions/collectFieldsTypes";
+import { buildWhereFromQuery, getWhere } from "../src/middlwares/getWhere";
+import { mockNext, mockReq, mockRes } from "./_helpers";
+import { PostModel, ProfileModel, RuaModel, UserModel } from "./_models";
 
 describe("@Field com objetos customizados (nested)", () => {
   beforeEach(() => clearLegacyWarnings());
@@ -32,7 +33,10 @@ describe("@Field com objetos customizados (nested)", () => {
 
   describe("AutoConvert instancia e converte objeto único", () => {
     test("profile vira instância de ProfileModel", () => {
-      const user = new UserModel({name: "Ana", profile: {id: "p1", bio: "hi", followers: "42"}});
+      const user = new UserModel({
+        name: "Ana",
+        profile: { id: "p1", bio: "hi", followers: "42" },
+      });
       expect(user.profile).toBeInstanceOf(ProfileModel);
       // primitivos do nested convertidos seguindo os tipos do ProfileModel
       expect(user.profile!.followers).toBe(42);
@@ -40,13 +44,13 @@ describe("@Field com objetos customizados (nested)", () => {
     });
 
     test("profile null permanece null", () => {
-      const user = new UserModel({name: "Ana", profile: null});
+      const user = new UserModel({ name: "Ana", profile: null });
       expect(user.profile).toBeNull();
     });
 
     test("instância já existente não é reinstanciada", () => {
-      const existing = new ProfileModel({id: "x"});
-      const user = new UserModel({name: "Ana", profile: existing});
+      const existing = new ProfileModel({ id: "x" });
+      const user = new UserModel({ name: "Ana", profile: existing });
       expect(user.profile).toBe(existing);
     });
   });
@@ -56,8 +60,8 @@ describe("@Field com objetos customizados (nested)", () => {
       const user = new UserModel({
         name: "Ana",
         posts: [
-          {id: "1", title: "A", views: "10", published: "true"},
-          {id: "2", title: "B", views: "20", published: "false"},
+          { id: "1", title: "A", views: "10", published: "true" },
+          { id: "2", title: "B", views: "20", published: "false" },
         ],
       });
       expect(Array.isArray(user.posts)).toBe(true);
@@ -70,14 +74,14 @@ describe("@Field com objetos customizados (nested)", () => {
     });
 
     test("valor único em campo de lista é normalizado para array", () => {
-      const user = new UserModel({name: "Ana", posts: {id: "1", title: "A", views: "5"}});
+      const user = new UserModel({ name: "Ana", posts: { id: "1", title: "A", views: "5" } });
       expect(Array.isArray(user.posts)).toBe(true);
       expect(user.posts!.length).toBe(1);
       expect(user.posts![0]!.views).toBe(5);
     });
 
     test("posts null permanece null", () => {
-      const user = new UserModel({name: "Ana", posts: null});
+      const user = new UserModel({ name: "Ana", posts: null });
       expect(user.posts).toBeNull();
     });
   });
@@ -97,7 +101,7 @@ describe("@Field com objetos customizados (nested)", () => {
     });
 
     test("getWhere monta filtro aninhado para profile.bio", () => {
-      const req = mockReq({query: {"profile.bio": "dev"}});
+      const req = mockReq({ query: { "profile.bio": "dev" } });
       const res = mockRes();
       const next = mockNext();
       getWhere(req, res, next, UserModel);
@@ -109,7 +113,7 @@ describe("@Field com objetos customizados (nested)", () => {
     });
 
     test("buildWhereFromQuery continua funcionando com campos diretos", () => {
-      const where = buildWhereFromQuery({name: "Ana", age: "30"}, UserModel);
+      const where = buildWhereFromQuery({ name: "Ana", age: "30" }, UserModel);
       expect(where).toBeDefined();
     });
   });

@@ -15,7 +15,7 @@
  *
  */
 
-import {isDecoratorContext, warnLegacy} from "./_proxy";
+import { isDecoratorContext, warnLegacy } from "./_proxy";
 
 interface CacheEntry {
   data: any;
@@ -99,7 +99,11 @@ function stableStringify(obj: any): string {
 }
 
 function buildCacheKey(req: any, res?: any): string {
-  const parts: string[] = [req.method || "GET", req.baseUrl || "", req.path || req.originalUrl || req.url || ""];
+  const parts: string[] = [
+    req.method || "GET",
+    req.baseUrl || "",
+    req.path || req.originalUrl || req.url || "",
+  ];
   if (req.params && Object.keys(req.params).length) {
     parts.push("p:" + stableStringify(req.params));
   }
@@ -108,7 +112,8 @@ function buildCacheKey(req: any, res?: any): string {
   }
   // Headers de paginação/ordenação que o frontend envia
   if (req.headers) {
-    const {paginate, page, offset, orderby, ordermethod, entity, entidade, exercicio} = req.headers;
+    const { paginate, page, offset, orderby, ordermethod, entity, entidade, exercicio } =
+      req.headers;
     if (paginate) parts.push("pg:" + paginate);
     if (page) parts.push("page:" + page);
     if (offset) parts.push("off:" + offset);
@@ -119,9 +124,10 @@ function buildCacheKey(req: any, res?: any): string {
   }
   // Valores parseados pelos middlewares (where, orderBy, paginate)
   if (res?.locals) {
-    const {where, orderBy, paginate} = res.locals;
+    const { where, orderBy, paginate } = res.locals;
     if (where && Object.keys(where).length) parts.push("w:" + stableStringify(where));
-    if (orderBy && (Array.isArray(orderBy) ? orderBy.length : Object.keys(orderBy).length)) parts.push("o:" + stableStringify(orderBy));
+    if (orderBy && (Array.isArray(orderBy) ? orderBy.length : Object.keys(orderBy).length))
+      parts.push("o:" + stableStringify(orderBy));
     if (paginate) parts.push("pag:" + stableStringify(paginate));
   }
   return parts.join("|");
@@ -152,9 +158,12 @@ function enforceMaxEntries(entidadeCache: Map<string, CacheEntry>, maxEntries: n
  * Decorator de classe: aplica cache em métodos de leitura e invalidação nos de escrita.
  */
 export function Cacheable(options?: CacheOptions) {
-  const opts = {...DEFAULT_OPTIONS, ...options};
+  const opts = { ...DEFAULT_OPTIONS, ...options };
 
-  return function <T extends {new (...args: any[]): any}>(constructor: T, context?: ClassDecoratorContext): T {
+  return function <T extends { new (...args: any[]): any }>(
+    constructor: T,
+    context?: ClassDecoratorContext,
+  ): T {
     if (!context || !isDecoratorContext(context)) {
       warnLegacy("Cacheable");
     }
@@ -177,7 +186,9 @@ export function Cacheable(options?: CacheOptions) {
           // Verifica cache
           const cached = entidadeCache.get(cacheKey);
           if (cached && cached.expiresAt > Date.now()) {
-            console.log(`[@mateusseiboth/ts-commons] Cache HIT ${className}.${methodName} (entidade: ${entidade})`);
+            console.log(
+              `[@mateusseiboth/ts-commons] Cache HIT ${className}.${methodName} (entidade: ${entidade})`,
+            );
             res.setHeader("X-Cache", "HIT");
             return res.status(200).json(cached.data);
           }
@@ -226,7 +237,7 @@ export function Cacheable(options?: CacheOptions) {
 /**
  * Decorator de método individual: permite TTL customizado por método.
  */
-export function CacheMethod(options?: {ttl?: number}) {
+export function CacheMethod(options?: { ttl?: number }) {
   const ttl = options?.ttl || DEFAULT_OPTIONS.ttl;
 
   return function (...args: any[]): any {
@@ -242,7 +253,9 @@ export function CacheMethod(options?: {ttl?: number}) {
 
         const cached = entidadeCache.get(cacheKey);
         if (cached && cached.expiresAt > Date.now()) {
-          console.log(`[@mateusseiboth/ts-commons] Cache HIT ${className}.${methodKey} (entidade: ${entidade})`);
+          console.log(
+            `[@mateusseiboth/ts-commons] Cache HIT ${className}.${methodKey} (entidade: ${entidade})`,
+          );
           res.setHeader("X-Cache", "HIT");
           return res.status(200).json(cached.data);
         }
@@ -280,7 +293,9 @@ export function CacheMethod(options?: {ttl?: number}) {
 
       const cached = entidadeCache.get(cacheKey);
       if (cached && cached.expiresAt > Date.now()) {
-        console.log(`[@mateusseiboth/ts-commons] Cache HIT ${className}.${methodKey} (entidade: ${entidade})`);
+        console.log(
+          `[@mateusseiboth/ts-commons] Cache HIT ${className}.${methodKey} (entidade: ${entidade})`,
+        );
         res.setHeader("X-Cache", "HIT");
         return res.status(200).json(cached.data);
       }

@@ -13,8 +13,8 @@
  */
 
 import "reflect-metadata";
-import {eventBus} from "../events/eventBus";
-import {isDecoratorContext, warnLegacy} from "./_proxy";
+import { eventBus } from "../events/eventBus";
+import { isDecoratorContext, warnLegacy } from "./_proxy";
 
 const LISTENERS_KEY = "events:listeners";
 const _initialized = new WeakSet<object>();
@@ -35,7 +35,7 @@ export function initListeners(instance: any): void {
   if (!instance || _initialized.has(instance)) return;
   const ctor = instance.constructor;
   const list: ListenerMeta[] = Reflect.getMetadata(LISTENERS_KEY, ctor) ?? [];
-  for (const {event, methodName} of list) {
+  for (const { event, methodName } of list) {
     eventBus.on(event, (payload) => instance[methodName](payload));
   }
   _initialized.add(instance);
@@ -47,7 +47,6 @@ export function Listen(event: string) {
     if (args.length === 2 && isDecoratorContext(args[1]) && args[1].kind === "method") {
       const original = args[0] as Function;
       const context = args[1] as ClassMethodDecoratorContext;
-      const methodName = String(context.name);
       context.addInitializer(function (this: any) {
         eventBus.on(event, (payload) => original.call(this, payload));
       });
@@ -58,7 +57,7 @@ export function Listen(event: string) {
     warnLegacy("Listen");
     const target = args[0];
     const propertyKey = args[1] as string;
-    addListenerMeta(target.constructor, {event, methodName: propertyKey});
+    addListenerMeta(target.constructor, { event, methodName: propertyKey });
     return args[2];
   };
 }

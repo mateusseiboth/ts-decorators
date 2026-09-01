@@ -10,8 +10,9 @@
  * ```
  */
 
-import {Database} from "bun:sqlite";
-import type {QueueAdapter, QueueJob} from "./adapter";
+import { Database } from "bun:sqlite";
+
+import type { QueueAdapter, QueueJob } from "./adapter";
 
 export class SqliteQueueAdapter<T = any> implements QueueAdapter<T> {
   private readonly db: Database;
@@ -19,7 +20,7 @@ export class SqliteQueueAdapter<T = any> implements QueueAdapter<T> {
 
   constructor(dbPath = ":memory:", table = "queue") {
     this.table = table;
-    this.db = new Database(dbPath, {create: true});
+    this.db = new Database(dbPath, { create: true });
     this.db.exec("PRAGMA journal_mode=WAL");
     this.db.exec("PRAGMA busy_timeout=10000");
     this.db.exec(`
@@ -58,13 +59,13 @@ export class SqliteQueueAdapter<T = any> implements QueueAdapter<T> {
       `INSERT INTO ${this.table} (id, payload, status, createdAt, error) VALUES (?, ?, ?, ?, ?)`,
       [job.id, JSON.stringify(job.payload), job.status, job.createdAt, job.error ?? null],
     );
-    return {...job};
+    return { ...job };
   }
 
   update(id: string, patch: Partial<QueueJob<T>>): QueueJob<T> | null {
     const current = this.findUnique(id);
     if (!current) return null;
-    const updated: QueueJob<T> = {...current, ...patch};
+    const updated: QueueJob<T> = { ...current, ...patch };
     this.db.run(`UPDATE ${this.table} SET payload = ?, status = ?, error = ? WHERE id = ?`, [
       JSON.stringify(updated.payload),
       updated.status,

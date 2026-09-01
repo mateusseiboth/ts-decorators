@@ -14,8 +14,8 @@
  */
 
 import "reflect-metadata";
-import {isDecoratorContext, warnLegacy} from "./_proxy";
-import {registerProcessor, startProcessors} from "../queue/registry";
+import { registerProcessor, startProcessors } from "../queue/registry";
+import { isDecoratorContext, warnLegacy } from "./_proxy";
 
 const PROCESSOR_KEY = "queue:processors";
 const _started = new WeakSet<object>();
@@ -71,7 +71,7 @@ export function Processor(queueName: string, options?: ProcessorOptions) {
       const context = args[1] as ClassMethodDecoratorContext;
       const methodName = String(context.name);
       context.addInitializer(function (this: any) {
-        register(this, {queueName, methodName, concurrency, pollMs, keyOf});
+        register(this, { queueName, methodName, concurrency, pollMs, keyOf });
         startProcessors();
       });
       return original;
@@ -82,7 +82,7 @@ export function Processor(queueName: string, options?: ProcessorOptions) {
     const target = args[0];
     const propertyKey = args[1] as string;
     const list: ProcessorMeta[] = Reflect.getMetadata(PROCESSOR_KEY, target.constructor) ?? [];
-    list.push({queueName, methodName: propertyKey, concurrency, pollMs, keyOf});
+    list.push({ queueName, methodName: propertyKey, concurrency, pollMs, keyOf });
     Reflect.defineMetadata(PROCESSOR_KEY, list, target.constructor);
     return args[2];
   };

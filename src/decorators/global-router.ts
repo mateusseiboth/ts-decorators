@@ -1,7 +1,6 @@
 import "reflect-metadata";
-
-import {folderRouter} from "./folder-router";
-import {ROUTERS_KEY} from "./router-metadata";
+import { folderRouter } from "./folder-router";
+import { ROUTERS_KEY } from "./router-metadata";
 
 export function GlobalRouter() {
   return function <T extends new (...args: any[]) => any>(constructor: T) {

@@ -1,7 +1,8 @@
-import {afterEach, describe, expect, test} from "bun:test";
-import {eventBus} from "../src/events/eventBus";
-import {Emit} from "../src/decorators/emit";
-import {Listen, initListeners} from "../src/decorators/listen";
+import { afterEach, describe, expect, test } from "bun:test";
+
+import { Emit } from "../src/decorators/emit";
+import { Listen, initListeners } from "../src/decorators/listen";
+import { eventBus } from "../src/events/eventBus";
 
 const delay = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -19,13 +20,13 @@ describe("@Emit / @Listen", () => {
     class Service {
       @Emit("order.created")
       async create(id: number) {
-        return {id, ok: true};
+        return { id, ok: true };
       }
     }
 
     const out = await new Service().create(7);
-    expect(out).toEqual({id: 7, ok: true});
-    expect(received.result).toEqual({id: 7, ok: true});
+    expect(out).toEqual({ id: 7, ok: true });
+    expect(received.result).toEqual({ id: 7, ok: true });
     expect(received.args).toEqual([7]);
   });
 
@@ -42,9 +43,9 @@ describe("@Emit / @Listen", () => {
     const h = new Handler();
     initListeners(h);
 
-    eventBus.emit("order.created", {id: 1});
+    eventBus.emit("order.created", { id: 1 });
     await delay(1);
-    expect(seen).toEqual([{id: 1}]);
+    expect(seen).toEqual([{ id: 1 }]);
   });
 
   test("@Emit + @Listen integrados", async () => {

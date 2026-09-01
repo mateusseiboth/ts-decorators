@@ -1,8 +1,10 @@
-import {afterEach, beforeEach, describe, expect, test} from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+
 import "reflect-metadata";
-import {clearLegacyWarnings} from "../src/decorators/_proxy";
-import {WithValidation} from "../src/decorators/validate";
-import {captureWarnings, fakeClassContext} from "./_helpers";
+
+import { clearLegacyWarnings } from "../src/decorators/_proxy";
+import { WithValidation } from "../src/decorators/validate";
+import { captureWarnings, fakeClassContext } from "./_helpers";
 
 describe("Validate / WithValidation", () => {
   let warnCap: ReturnType<typeof captureWarnings>;

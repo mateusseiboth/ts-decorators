@@ -13,8 +13,8 @@
  */
 
 import "reflect-metadata";
-import {isDecoratorContext, warnLegacy} from "./_proxy";
-import {makeMethodDecorator} from "./_method";
+import { makeMethodDecorator } from "./_method";
+import { isDecoratorContext, warnLegacy } from "./_proxy";
 
 const MASK_FIELDS_KEY = "mask:fields";
 
@@ -29,7 +29,7 @@ interface FieldMeta extends Required<MaskOptions> {
   field: string;
 }
 
-const DEFAULTS: Required<MaskOptions> = {maskChar: "*", visible: 0};
+const DEFAULTS: Required<MaskOptions> = { maskChar: "*", visible: 0 };
 
 function getMaskFields(ctor: any): FieldMeta[] {
   return Reflect.getMetadata(MASK_FIELDS_KEY, ctor) ?? [];
@@ -37,7 +37,9 @@ function getMaskFields(ctor: any): FieldMeta[] {
 
 function maskValue(value: unknown, opts: Required<MaskOptions>): unknown {
   if (value === null || value === undefined) return value;
-  const str = String(value);
+  // Campo mascarado pode ser qualquer coisa; objeto vira "[object Object]" e é
+  // mascarado assim mesmo. O cast é só para o lint — `String` já se comporta assim.
+  const str = String(value as string);
   if (opts.visible > 0 && str.length > opts.visible) {
     const tail = str.slice(-opts.visible);
     return opts.maskChar.repeat(str.length - opts.visible) + tail;
@@ -50,7 +52,7 @@ export function applyMask<T extends Record<string, any>>(obj: T, ctor: any): T {
   if (!obj || typeof obj !== "object") return obj;
   const fields = getMaskFields(ctor);
   if (fields.length === 0) return obj;
-  const clone: Record<string, any> = Array.isArray(obj) ? [...obj] : {...obj};
+  const clone: Record<string, any> = Array.isArray(obj) ? [...obj] : { ...obj };
   for (const meta of fields) {
     if (meta.field in clone) {
       clone[meta.field] = maskValue(clone[meta.field], meta);
@@ -60,7 +62,7 @@ export function applyMask<T extends Record<string, any>>(obj: T, ctor: any): T {
 }
 
 export function MaskSensitive(options?: MaskOptions) {
-  const opts = {...DEFAULTS, ...options};
+  const opts = { ...DEFAULTS, ...options };
 
   return function (...args: any[]): any {
     // TC39 field: (value, context{kind:"field"})
@@ -68,7 +70,7 @@ export function MaskSensitive(options?: MaskOptions) {
       const context = args[1] as ClassFieldDecoratorContext;
       // No TC39, o metadata da classe fica em context.metadata.
       const meta = (context.metadata[MASK_FIELDS_KEY] as FieldMeta[]) ?? [];
-      meta.push({field: String(context.name), ...opts});
+      meta.push({ field: String(context.name), ...opts });
       (context.metadata as any)[MASK_FIELDS_KEY] = meta;
       return;
     }
@@ -89,7 +91,7 @@ export function MaskSensitive(options?: MaskOptions) {
       const target = args[0];
       const propertyKey = args[1] as string;
       const list = getMaskFields(target.constructor);
-      list.push({field: propertyKey, ...opts});
+      list.push({ field: propertyKey, ...opts });
       Reflect.defineMetadata(MASK_FIELDS_KEY, list, target.constructor);
       return;
     }

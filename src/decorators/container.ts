@@ -17,9 +17,9 @@
  */
 
 import "reflect-metadata";
-import {initListeners} from "./listen";
-import {startCronJobs} from "./cron";
-import {initProcessors} from "./processor";
+import { startCronJobs } from "./cron";
+import { initListeners } from "./listen";
+import { initProcessors } from "./processor";
 
 const DI_PARAMTYPES_KEY = "di:paramtypes";
 const DI_SCOPE_KEY = "di:scope";

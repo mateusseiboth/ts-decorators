@@ -1,7 +1,8 @@
-import {describe, expect, test} from "bun:test";
-import {OPTIONS_FILTER} from "../src/constants/default";
-import {Controller} from "../src/Controller";
-import {ClientError} from "../src/errors/commons";
+import { describe, expect, test } from "bun:test";
+
+import { OPTIONS_FILTER } from "../src/constants/default";
+import { Controller } from "../src/Controller";
+import { ClientError } from "../src/errors/commons";
 
 describe("Misc exports", () => {
   describe("OPTIONS_FILTER", () => {

@@ -14,8 +14,9 @@
  *
  */
 
-import type {Request, Response} from "express";
-import {isDecoratorContext, warnLegacy} from "./_proxy";
+import type { Request, Response } from "express";
+
+import { isDecoratorContext, warnLegacy } from "./_proxy";
 
 export interface AuditEntry {
   action: "CREATE" | "UPDATE" | "DELETE";
@@ -73,7 +74,10 @@ const METHOD_ACTION_MAP: Record<string, AuditEntry["action"]> = {
 /**
  * Decorator de classe. Envolve métodos de escrita com lógica de auditoria.
  */
-export function Auditable<T extends {new (...args: any[]): any}>(constructor: T, context?: ClassDecoratorContext): T {
+export function Auditable<T extends { new (...args: any[]): any }>(
+  constructor: T,
+  context?: ClassDecoratorContext,
+): T {
   if (!context || !isDecoratorContext(context)) {
     warnLegacy("Auditable");
   }
@@ -101,11 +105,12 @@ export function Auditable<T extends {new (...args: any[]): any}>(constructor: T,
       let before: any = null;
       if ((action === "UPDATE" || action === "DELETE") && entityId && tx) {
         try {
-          const modelName = (this.constructor as any).modelName || className.replace("Controller", "");
+          const modelName =
+            (this.constructor as any).modelName || className.replace("Controller", "");
           // Tenta buscar o registro atual pela PK
           const prismaModel = (tx as any)[modelName.charAt(0).toLowerCase() + modelName.slice(1)];
           if (prismaModel?.findUnique) {
-            before = await prismaModel.findUnique({where: {id: entityId}});
+            before = await prismaModel.findUnique({ where: { id: entityId } });
           }
         } catch {
           // ignora se não conseguir buscar o estado anterior

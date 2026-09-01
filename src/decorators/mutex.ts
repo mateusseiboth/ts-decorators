@@ -9,8 +9,8 @@
  *   async atualizarSaldo(req, res) { ... }
  */
 
-import {Mutex as MutexPrimitive} from "../concurrency/Mutex";
-import {makeMethodDecorator} from "./_method";
+import { Mutex as MutexPrimitive } from "../concurrency/Mutex";
+import { makeMethodDecorator } from "./_method";
 
 const STORE = Symbol("mutex:locks");
 

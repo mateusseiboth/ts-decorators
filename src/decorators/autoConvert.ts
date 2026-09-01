@@ -1,6 +1,6 @@
-import {isDecoratorContext, warnLegacy} from "./_proxy";
-import {getFieldTypeByKey, getFieldTypes} from "./initFields";
-import {getNestedModelMeta, type NestedModelMeta} from "./nestedModel";
+import { isDecoratorContext, warnLegacy } from "./_proxy";
+import { getFieldTypeByKey, getFieldTypes } from "./initFields";
+import { getNestedModelMeta, type NestedModelMeta } from "./nestedModel";
 
 /**
  * Converte um único valor primitivo de acordo com o tipo declarado no @Field.

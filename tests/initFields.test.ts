@@ -1,8 +1,9 @@
-import {afterEach, beforeEach, describe, expect, test} from "bun:test";
-import {clearLegacyWarnings} from "../src/decorators/_proxy";
-import {Field, InitFields, getFieldTypeByKey, getFieldTypes} from "../src/decorators/initFields";
-import {captureLogs, captureWarnings, fakeClassContext, fakeFieldContext} from "./_helpers";
-import {BaseModel, RuaModel, SimpleModel} from "./_models";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+
+import { clearLegacyWarnings } from "../src/decorators/_proxy";
+import { Field, InitFields, getFieldTypeByKey, getFieldTypes } from "../src/decorators/initFields";
+import { captureLogs, captureWarnings, fakeClassContext, fakeFieldContext } from "./_helpers";
+import { BaseModel, RuaModel, SimpleModel } from "./_models";
 
 describe("initFields", () => {
   let warnCap: ReturnType<typeof captureWarnings>;

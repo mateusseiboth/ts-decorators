@@ -1,8 +1,7 @@
 import "reflect-metadata";
+import type { RequestHandler } from "express";
 
-import type {RequestHandler} from "express";
-
-import type {RouteBuilder} from "./router-builder";
+import type { RouteBuilder } from "./router-builder";
 
 /**
  * Decorators de rota no estilo NestJS (@Get, @Post, @Put, ...).
@@ -36,15 +35,7 @@ import type {RouteBuilder} from "./router-builder";
 
 export const HTTP_ROUTES_KEY = Symbol("HTTP_ROUTES_KEY");
 
-export type HttpMethod =
-  | "get"
-  | "post"
-  | "put"
-  | "patch"
-  | "delete"
-  | "options"
-  | "head"
-  | "all";
+export type HttpMethod = "get" | "post" | "put" | "patch" | "delete" | "options" | "head" | "all";
 
 export interface RouteOptions {
   /**
@@ -74,7 +65,7 @@ function createMethodDecorator(method: HttpMethod) {
     return (target, propertyKey) => {
       const ctor = (target as any).constructor;
       const routes: RouteDefinition[] = Reflect.getOwnMetadata(HTTP_ROUTES_KEY, ctor) ?? [];
-      routes.push({method, path, handlerName: String(propertyKey), options});
+      routes.push({ method, path, handlerName: String(propertyKey), options });
       Reflect.defineMetadata(HTTP_ROUTES_KEY, routes, ctor);
     };
   };
@@ -149,7 +140,7 @@ export interface ApplyControllerRoutesConfig {
  * Rotas cujo handler não existe no controller são ignoradas com um aviso.
  */
 export function applyControllerRoutes(config: ApplyControllerRoutesConfig): void {
-  const {controller, resolveBuilder, wrap} = config;
+  const { controller, resolveBuilder, wrap } = config;
   const routes = config.routes ?? getControllerRoutes(controller);
 
   for (const def of routes) {
@@ -161,15 +152,13 @@ export function applyControllerRoutes(config: ApplyControllerRoutesConfig): void
       continue;
     }
 
-    const invoke: RequestHandler = (req, res, next) =>
-      controller[def.handlerName](req, res, next);
+    const invoke: RequestHandler = (req, res, next) => controller[def.handlerName](req, res, next);
 
     const handlers = wrap ? wrap(def, invoke) : invoke;
     const handlerArray = Array.isArray(handlers) ? handlers : [handlers];
 
     const base = resolveBuilder(def.options.use, def);
-    const builder =
-      typeof def.options.build === "function" ? def.options.build(base, def) : base;
+    const builder = typeof def.options.build === "function" ? def.options.build(base, def) : base;
     (builder as any)[def.method](def.path, ...handlerArray);
   }
 }

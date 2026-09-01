@@ -1,16 +1,18 @@
-import {describe, expect, test} from "bun:test";
+import { describe, expect, test } from "bun:test";
+
 import "reflect-metadata";
-import {MaskSensitive, applyMask} from "../src/decorators/maskSensitive";
+
+import { MaskSensitive, applyMask } from "../src/decorators/maskSensitive";
 
 describe("@MaskSensitive", () => {
   test("aplica máscara nos campos marcados via applyMask", () => {
     class User {
       name = "";
       @MaskSensitive() password = "";
-      @MaskSensitive({visible: 4}) cpf = "";
+      @MaskSensitive({ visible: 4 }) cpf = "";
     }
 
-    const masked = applyMask({name: "Maria", password: "secret", cpf: "12345678901"}, User);
+    const masked = applyMask({ name: "Maria", password: "secret", cpf: "12345678901" }, User);
     expect(masked.name).toBe("Maria");
     expect(masked.password).toBe("******");
     expect(masked.cpf).toBe("*******8901");
@@ -20,7 +22,7 @@ describe("@MaskSensitive", () => {
     class User {
       @MaskSensitive() password = "";
     }
-    const original = {password: "secret"};
+    const original = { password: "secret" };
     const masked = applyMask(original, User);
     expect(original.password).toBe("secret");
     expect(masked.password).toBe("******");
@@ -32,7 +34,7 @@ describe("@MaskSensitive", () => {
 
       @MaskSensitive()
       async getById() {
-        return {password: "secret", name: "Ana"};
+        return { password: "secret", name: "Ana" };
       }
     }
 

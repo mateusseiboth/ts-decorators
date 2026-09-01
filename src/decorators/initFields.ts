@@ -1,6 +1,6 @@
 import "reflect-metadata";
-import {isDecoratorContext, warnLegacy} from "./_proxy";
-import {registerNestedModelLegacy, registerNestedModelMeta} from "./nestedModel";
+import { isDecoratorContext, warnLegacy } from "./_proxy";
+import { registerNestedModelLegacy, registerNestedModelMeta } from "./nestedModel";
 
 const CLASS_FIELDS = new WeakMap<object, Record<string, string>>();
 
@@ -16,19 +16,22 @@ export type FieldType = string | Function | [Function];
  * - `@Field([PostModel])`     → {typeString: 'object', nested: {model, isArray:true}}
  * - `@Field()`                → {typeString: undefined} (deixa o reflect/any decidir)
  */
-function resolveFieldType(type: FieldType | undefined): {typeString?: string; nested?: {model: Function; isArray: boolean}} {
+function resolveFieldType(type: FieldType | undefined): {
+  typeString?: string;
+  nested?: { model: Function; isArray: boolean };
+} {
   if (typeof type === "function") {
-    return {typeString: "object", nested: {model: type, isArray: false}};
+    return { typeString: "object", nested: { model: type, isArray: false } };
   }
   if (Array.isArray(type)) {
     const model = type[0];
     if (typeof model === "function") {
-      return {typeString: "object", nested: {model, isArray: true}};
+      return { typeString: "object", nested: { model, isArray: true } };
     }
-    return {typeString: "object"};
+    return { typeString: "object" };
   }
   if (typeof type === "string") {
-    return {typeString: type};
+    return { typeString: type };
   }
   return {};
 }
@@ -47,7 +50,7 @@ function resolveFieldType(type: FieldType | undefined): {typeString?: string; ne
  * recursivamente, e o collectFieldTypes expõe os campos (to-one) para o getWhere.
  */
 export function Field(type?: FieldType) {
-  const {typeString, nested} = resolveFieldType(type);
+  const { typeString, nested } = resolveFieldType(type);
 
   return function (...args: any[]): any {
     // New TC39 field decorator: (value, context)
@@ -85,7 +88,10 @@ export function Field(type?: FieldType) {
  * @InitFields - Decorator de classe.
  * Suporta legacy e TC39 Stage 3.
  */
-export function InitFields<T extends {new (...args: any[]): {}}>(constructor: T, context?: ClassDecoratorContext): T {
+export function InitFields<T extends { new (...args: any[]): {} }>(
+  constructor: T,
+  context?: ClassDecoratorContext,
+): T {
   if (context && isDecoratorContext(context)) {
     // New TC39: sincroniza metadata para WeakMap
     const meta = context.metadata as Record<string, any>;

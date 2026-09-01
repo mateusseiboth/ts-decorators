@@ -1,7 +1,7 @@
-import type {Response} from "express";
+import type { Response } from "express";
 
 export const makePrismaOptions = (res: Response, _filterExercicio = false) => {
-  const {where, orderBy, paginate} = res.locals;
+  const { where, orderBy, paginate } = res.locals;
   // Merge existing AND conditions with the new ones
   const mergedWhere = {
     ...where,

@@ -1,6 +1,5 @@
 import "reflect-metadata";
-
-import type {HttpMethod, RouteDefinition, RouteOptions} from "./http-methods";
+import type { HttpMethod, RouteDefinition, RouteOptions } from "./http-methods";
 
 /**
  * @Rest() — decorator de classe (no registry) que semeia o CRUD padrão sem
@@ -39,11 +38,29 @@ interface RestPresetEntry {
 
 /** Preset padrão de CRUD — espelha o BaseRegistry atual. Exportado para inspeção/reuso. */
 export const REST_PRESET: Record<RestAction, RestPresetEntry> = {
-  list: {method: "get", path: "/", handlerName: "get", action: "LIST", use: "routeWithPaginate"},
-  get: {method: "get", path: "/:id", handlerName: "getById", action: "GET", use: "route"},
-  create: {method: "post", path: "/", handlerName: "create", action: "CREATE", use: "routeWithExtraInfo"},
-  update: {method: "put", path: "/:id", handlerName: "update", action: "UPDATE", use: "routeWithExtraInfo"},
-  delete: {method: "delete", path: "/:id", handlerName: "deleteById", action: "DELETE", use: "routeWithIdempotency"},
+  list: { method: "get", path: "/", handlerName: "get", action: "LIST", use: "routeWithPaginate" },
+  get: { method: "get", path: "/:id", handlerName: "getById", action: "GET", use: "route" },
+  create: {
+    method: "post",
+    path: "/",
+    handlerName: "create",
+    action: "CREATE",
+    use: "routeWithExtraInfo",
+  },
+  update: {
+    method: "put",
+    path: "/:id",
+    handlerName: "update",
+    action: "UPDATE",
+    use: "routeWithExtraInfo",
+  },
+  delete: {
+    method: "delete",
+    path: "/:id",
+    handlerName: "deleteById",
+    action: "DELETE",
+    use: "routeWithIdempotency",
+  },
 };
 
 export interface RestOverride {

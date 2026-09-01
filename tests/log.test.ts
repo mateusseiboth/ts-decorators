@@ -1,7 +1,8 @@
-import {afterEach, beforeEach, describe, expect, test} from "bun:test";
-import {clearLegacyWarnings} from "../src/decorators/_proxy";
-import {logDecorator} from "../src/decorators/log";
-import {captureWarnings, fakeClassContext} from "./_helpers";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+
+import { clearLegacyWarnings } from "../src/decorators/_proxy";
+import { logDecorator } from "../src/decorators/log";
+import { captureWarnings, fakeClassContext } from "./_helpers";
 
 describe("logDecorator", () => {
   let warnCap: ReturnType<typeof captureWarnings>;

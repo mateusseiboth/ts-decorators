@@ -1,10 +1,10 @@
 import fs from "fs/promises";
 import path from "path";
 
-import type {Express, RequestHandler} from "express";
-import {Router} from "express";
+import type { Express, RequestHandler } from "express";
+import { Router } from "express";
 
-import {validateRouteFile} from "./validate-route-file";
+import { validateRouteFile } from "./validate-route-file";
 
 export const AllRouters: Record<string, any> = {};
 
@@ -54,7 +54,11 @@ const log = {
   },
 };
 
-export async function folderRouter(app: Express, baseFolder: string, options?: FolderRouterOptions) {
+export async function folderRouter(
+  app: Express,
+  baseFolder: string,
+  options?: FolderRouterOptions,
+) {
   const globalMiddlewares = options?.middlewares || [];
 
   log.start(baseFolder, options?.prefix);
@@ -97,7 +101,8 @@ export async function folderRouter(app: Express, baseFolder: string, options?: F
 
       const relativeDir = path.relative(baseFolder, currentDir);
 
-      const routePath = (options?.prefix ?? "") + "/" + relativeDir.split(path.sep).filter(Boolean).join("/");
+      const routePath =
+        (options?.prefix ?? "") + "/" + relativeDir.split(path.sep).filter(Boolean).join("/");
 
       const router = Router();
 

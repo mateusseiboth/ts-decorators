@@ -13,9 +13,9 @@
  *   class ReportQueue {}
  */
 
-import {isDecoratorContext, warnLegacy} from "./_proxy";
-import type {QueueAdapter} from "../queue/adapter";
-import {enqueue, registerQueue} from "../queue/registry";
+import type { QueueAdapter } from "../queue/adapter";
+import { enqueue, registerQueue } from "../queue/registry";
+import { isDecoratorContext, warnLegacy } from "./_proxy";
 
 export interface QueueOptions {
   name: string;
@@ -23,7 +23,10 @@ export interface QueueOptions {
 }
 
 export function Queue(options: QueueOptions) {
-  return function <T extends {new (...args: any[]): any}>(constructor: T, context?: ClassDecoratorContext): T {
+  return function <T extends { new (...args: any[]): any }>(
+    constructor: T,
+    context?: ClassDecoratorContext,
+  ): T {
     if (!context || !isDecoratorContext(context)) {
       warnLegacy("Queue");
     }
