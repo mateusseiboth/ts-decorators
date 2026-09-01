@@ -108,6 +108,23 @@ export function invalidateCountCache(model?: string): number {
   return removed;
 }
 
+/** Liga a dedução do total para o processo inteiro. Default: `false`. */
+let _deriveTotalDefault = false;
+
+/**
+ * Deduzir o total sem consultar o `count` MUDA o comportamento observável: a
+ * consulta some. Biblioteca compartilhada não troca isso por baixo de quem já
+ * depende dela, então nasce desligada — ligue por chamada (`deriveTotal: true`)
+ * ou aqui, uma vez, no bootstrap do projeto.
+ */
+export function setDeriveTotalDefault(enabled: boolean): void {
+  _deriveTotalDefault = enabled;
+}
+
+export function getDeriveTotalDefault(): boolean {
+  return _deriveTotalDefault;
+}
+
 /**
  * Quantos registros existem no total, SEM ir ao banco quando a resposta já conta a história.
  *
@@ -115,7 +132,7 @@ export function invalidateCountCache(model?: string): number {
  * deslocamento mais o que veio. Sem `take`? Trouxemos tudo. Só a página CHEIA deixa dúvida
  * — aí sim vale o `count`, que numa tabela grande costuma ser a consulta mais cara das três.
  */
-function deriveTotal(rows: number, skip: number | undefined, take: number | undefined) {
+function deriveTotalFromPage(rows: number, skip: number | undefined, take: number | undefined) {
   if (take != null && rows >= take) return undefined; // pode haver mais: precisa contar
   return (skip ?? 0) + rows;
 }
@@ -130,11 +147,16 @@ export async function executePrismaQuery<T>(
     include?: any;
     distinct?: any;
     select?: any;
+    /** Deduz o total quando a página responde sozinha, poupando o `count`. */
+    deriveTotal?: boolean;
+    /** Reaproveita a contagem entre páginas da mesma listagem, por N ms. */
     countTtlMs?: number;
   },
 ): Promise<IResponsePaginate<T>> {
   const countTtlMs = options.countTtlMs;
+  const deriveTotal = options.deriveTotal ?? _deriveTotalDefault;
   delete options.countTtlMs;
+  delete options.deriveTotal;
 
   const paginate = {
     count: 0,
@@ -159,18 +181,7 @@ export async function executePrismaQuery<T>(
     } as any;
   }
 
-  // Contagem: a mais cara das três consultas (numa tabela de 28 mil linhas, ~8ms de
-  // ~11ms). Três saídas, da mais barata para a mais cara: deduzir da própria página,
-  // reaproveitar a contagem da página anterior, ou ir ao banco.
-  const cacheKey = countTtlMs ? countCacheKey(objectPrismaQuery, options.where) : "";
-  const derived =
-    deriveTotal(ids.length, options.skip, options.take) ??
-    (cacheKey ? readCount(cacheKey) : undefined);
-
-  // 2ª ida: as linhas e, quando ainda for preciso, a contagem — DISPARADAS JUNTAS.
-  // Uma não depende da outra; esperar a primeira para só então pedir a segunda gastava
-  // uma viagem de rede a mais em toda listagem.
-  const [data, count] = await Promise.all([
+  const buscarLinhas = () =>
     objectPrismaQuery.findMany({
       where: {
         id: { in: ids.map((i: any) => i.id) },
@@ -179,9 +190,14 @@ export async function executePrismaQuery<T>(
       include: options.include,
       distinct: options.distinct,
       select: options.select,
-    }),
-    derived ?? objectPrismaQuery.count({ where: options.where }),
-  ]);
+    });
+
+  // Caminho HISTÓRICO, e o padrão: as linhas e DEPOIS a contagem, em sequência,
+  // sempre. Só quem pede a otimização recebe o comportamento novo.
+  const [data, count] =
+    deriveTotal || countTtlMs != null
+      ? await runOptimized(objectPrismaQuery, options, ids, buscarLinhas, deriveTotal, countTtlMs)
+      : [await buscarLinhas(), await objectPrismaQuery.count({ where: options.where })];
 
   const treatedDataWithBigIntToString = convertBigIntValues(data);
 
@@ -189,9 +205,6 @@ export async function executePrismaQuery<T>(
   delete options.take;
   delete options.include;
   paginate.count = count;
-
-  // O total vale para as PRÓXIMAS páginas da mesma listagem — o filtro não mudou.
-  if (cacheKey) _countCache.set(cacheKey, { count, expiresAt: Date.now() + countTtlMs! });
 
   const responseWithPaginate = {
     data: {
@@ -204,6 +217,37 @@ export async function executePrismaQuery<T>(
     },
   };
   return responseWithPaginate;
+}
+
+/**
+ * Caminho otimizado, só sob pedido.
+ *
+ * A contagem é a mais cara das três consultas de uma listagem. Três saídas, da
+ * mais barata para a mais cara: deduzir da própria página, reaproveitar a
+ * contagem da página anterior, ou ir ao banco — e, nesse caso, junto das linhas.
+ */
+async function runOptimized(
+  objectPrismaQuery: any,
+  options: any,
+  ids: any[],
+  buscarLinhas: () => Promise<any>,
+  deriveTotal: boolean,
+  countTtlMs: number | undefined,
+): Promise<[any, number]> {
+  const cacheKey = countTtlMs ? countCacheKey(objectPrismaQuery, options.where) : "";
+  const known =
+    (deriveTotal ? deriveTotalFromPage(ids.length, options.skip, options.take) : undefined) ??
+    (cacheKey ? readCount(cacheKey) : undefined);
+
+  const [data, count] = await Promise.all([
+    buscarLinhas(),
+    known ?? objectPrismaQuery.count({ where: options.where }),
+  ]);
+
+  // O total vale para as PRÓXIMAS páginas da mesma listagem — o filtro não mudou.
+  if (cacheKey) _countCache.set(cacheKey, { count, expiresAt: Date.now() + countTtlMs! });
+
+  return [data, count];
 }
 
 /**

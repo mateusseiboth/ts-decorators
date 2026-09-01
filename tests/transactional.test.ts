@@ -22,7 +22,7 @@ describe("TransactionalClass", () => {
   afterEach(() => {
     warnCap.restore();
     logCap.restore();
-    setSavepointPolicy("auto");
+    setSavepointPolicy("always");
   });
 
   function mockTx() {
@@ -126,9 +126,9 @@ describe("TransactionalClass", () => {
   });
 
   describe("política de savepoint", () => {
-    test('o padrão é "auto"', () => {
-      setSavepointPolicy("auto");
-      expect(getSavepointPolicy()).toBe("auto");
+    test('o padrão é "always" — não mexe no comportamento de quem já usa', () => {
+      setSavepointPolicy("always");
+      expect(getSavepointPolicy()).toBe("always");
     });
 
     test('"auto": a PRIMEIRA escrita da transação não gasta savepoint', async () => {

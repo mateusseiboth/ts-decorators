@@ -1,5 +1,5 @@
 import { getFieldTypes } from "../decorators/initFields";
-import { createMetadataCache } from "../decorators/metadata";
+import { createMetadataCache, freezeIfEnabled } from "../decorators/metadata";
 import { getNestedModels } from "../decorators/nestedModel";
 
 /**
@@ -80,10 +80,11 @@ export function collectFieldMeta(
     return walk(instance, prefix, ancestors);
   }
 
+  // O resultado é COMPARTILHADO entre as leituras — trate como somente leitura.
   return FIELD_META_CACHE.get(instance as object, (target) => {
     const meta = walk(target, "", new Set());
-    Object.freeze(meta.types);
-    return Object.freeze(meta);
+    freezeIfEnabled(meta.types);
+    return freezeIfEnabled(meta);
   });
 }
 

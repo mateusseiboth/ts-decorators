@@ -1,7 +1,7 @@
 import "reflect-metadata";
 import { logger } from "../functions/logger";
 import { isDecoratorContext, warnLegacy } from "./_proxy";
-import { bumpMetadataVersion, createMetadataCache } from "./metadata";
+import { bumpMetadataVersion, createMetadataCache, freezeIfEnabled } from "./metadata";
 import { registerNestedModelLegacy, registerNestedModelMeta } from "./nestedModel";
 
 const CLASS_FIELDS = new WeakMap<object, Record<string, string>>();
@@ -145,8 +145,8 @@ function resolveFieldTypes(target: any): Readonly<Record<string, string>> {
     }
   }
 
-  // Congelado de propósito: o mapa é COMPARTILHADO entre todas as leituras.
-  return Object.freeze(result);
+  // COMPARTILHADO entre todas as leituras — trate como somente leitura.
+  return freezeIfEnabled(result);
 }
 
 /**

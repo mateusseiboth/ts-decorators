@@ -75,7 +75,7 @@ const METHOD_ACTION_MAP: Record<string, AuditEntry["action"]> = {
 export interface AuditableOptions {
   /**
    * Busca o registro ANTES de alterar/apagar (um `findUnique` extra por
-   * escrita) e guarda em `before`. Default: `false`.
+   * escrita) e guarda em `before`. Default: `true`, como sempre foi.
    *
    * O que mudou já está no corpo da requisição — `after` conta a história sem
    * uma ida a mais ao banco em cada UPDATE/DELETE. Ligue quando a auditoria
@@ -90,7 +90,7 @@ export interface AuditableOptions {
 }
 
 const DEFAULT_AUDIT_OPTIONS: Required<AuditableOptions> = {
-  captureBefore: false,
+  captureBefore: true,
   captureResponse: true,
 };
 

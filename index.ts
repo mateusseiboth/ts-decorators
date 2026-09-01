@@ -55,7 +55,11 @@ import { Scoped, Singleton, Transient, type DiScope } from "./src/decorators/lif
 import { Listen, disposeListeners, hasListeners, initListeners } from "./src/decorators/listen";
 import { logDecorator } from "./src/decorators/log";
 import { MaskSensitive, applyMask, type MaskOptions } from "./src/decorators/maskSensitive";
-import { clearMetadataCache } from "./src/decorators/metadata";
+import {
+  clearMetadataCache,
+  getFreezeMetadata,
+  setFreezeMetadata,
+} from "./src/decorators/metadata";
 import { Mutex } from "./src/decorators/mutex";
 import {
   NestedModel,
@@ -112,7 +116,9 @@ import {
   addCompanyIdToTransaction,
   convertBigIntValues,
   executePrismaQuery,
+  getDeriveTotalDefault,
   invalidateCountCache,
+  setDeriveTotalDefault,
   type IResponsePaginate,
 } from "./src/functions/sql";
 import { Audit } from "./src/handlers/Audit";
@@ -259,6 +265,8 @@ export {
   getDAO,
   getFieldTypeByKey,
   getFieldTypes,
+  getDeriveTotalDefault,
+  getFreezeMetadata,
   getLogLevel,
   getHandlerContext,
   getModel,
@@ -293,6 +301,8 @@ export {
   resetCompanyIdInjector,
   setAuditStorage,
   setCompanyIdInjector,
+  setDeriveTotalDefault,
+  setFreezeMetadata,
   setHandlerContext,
   setLogLevel,
   setSavepointPolicy,

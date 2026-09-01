@@ -1,6 +1,10 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
-import { executePrismaQuery, invalidateCountCache } from "../src/functions/sql";
+import {
+  executePrismaQuery,
+  invalidateCountCache,
+  setDeriveTotalDefault,
+} from "../src/functions/sql";
 import { setHandlerContext } from "../src/handlers/context";
 
 interface DelegateOptions {
@@ -38,7 +42,58 @@ function mockDelegate(ids: any[], options: DelegateOptions & { model?: string } 
 
 const ids = (n: number) => Array.from({ length: n }, (_, i) => ({ id: String(i + 1) }));
 
-describe("executePrismaQuery — número de consultas", () => {
+describe("executePrismaQuery — o PADRÃO não mexe no comportamento histórico", () => {
+  test("a contagem vai ao banco mesmo com a página incompleta", async () => {
+    const delegate = mockDelegate(ids(3), { total: 3 });
+
+    const result: any = await executePrismaQuery(
+      delegate as any,
+      {
+        where: { enabled: true },
+        page: 1,
+        skip: 0,
+        take: 10,
+      } as any,
+    );
+
+    expect(delegate.countCalls.length).toBe(1);
+    expect(result.data.paginacao.totalPage).toBe(3);
+  });
+
+  test("o count só sai DEPOIS das linhas — nada de paralelismo por padrão", async () => {
+    const delegate = mockDelegate(ids(10), { total: 50, hangRows: true });
+
+    const pending = executePrismaQuery(
+      delegate as any,
+      {
+        where: {},
+        page: 1,
+        skip: 0,
+        take: 10,
+      } as any,
+    );
+
+    await Bun.sleep(5);
+    expect(delegate.countCalls.length).toBe(0);
+
+    delegate.releaseRows();
+    await pending;
+    expect(delegate.countCalls.length).toBe(1);
+  });
+
+  test("setDeriveTotalDefault liga a dedução para o processo inteiro", async () => {
+    setDeriveTotalDefault(true);
+    try {
+      const delegate = mockDelegate(ids(3));
+      await executePrismaQuery(delegate as any, { where: {}, page: 1, skip: 0, take: 10 } as any);
+      expect(delegate.countCalls.length).toBe(0);
+    } finally {
+      setDeriveTotalDefault(false);
+    }
+  });
+});
+
+describe("executePrismaQuery — com deriveTotal ligado", () => {
   test("página INCOMPLETA não consulta count: o total já é conhecido", async () => {
     const delegate = mockDelegate(ids(3));
 
@@ -49,6 +104,7 @@ describe("executePrismaQuery — número de consultas", () => {
         page: 1,
         skip: 0,
         take: 10,
+        deriveTotal: true,
       } as any,
     );
 
@@ -67,6 +123,7 @@ describe("executePrismaQuery — número de consultas", () => {
         page: 3,
         skip: 20,
         take: 10,
+        deriveTotal: true,
       } as any,
     );
 
@@ -77,7 +134,13 @@ describe("executePrismaQuery — número de consultas", () => {
   test("SEM take (consulta não paginada) o total é o que veio", async () => {
     const delegate = mockDelegate(ids(7));
 
-    const result: any = await executePrismaQuery(delegate as any, { where: {} } as any);
+    const result: any = await executePrismaQuery(
+      delegate as any,
+      {
+        where: {},
+        deriveTotal: true,
+      } as any,
+    );
 
     expect(delegate.countCalls.length).toBe(0);
     expect(result.data.paginacao.totalPage).toBe(7);
@@ -93,6 +156,7 @@ describe("executePrismaQuery — número de consultas", () => {
         page: 1,
         skip: 0,
         take: 10,
+        deriveTotal: true,
       } as any,
     );
 
@@ -112,6 +176,7 @@ describe("executePrismaQuery — número de consultas", () => {
         page: 1,
         skip: 0,
         take: 10,
+        deriveTotal: true,
       } as any,
     );
 
@@ -134,6 +199,7 @@ describe("executePrismaQuery — número de consultas", () => {
         page: 1,
         skip: 0,
         take: 10,
+        deriveTotal: true,
       } as any,
     );
 
@@ -145,7 +211,7 @@ describe("executePrismaQuery — número de consultas", () => {
 
 describe("executePrismaQuery — formato da resposta", () => {
   test("mantém data.data + paginacao e converte BigInt", async () => {
-    const delegate = mockDelegate([{ id: "1", sequencial: BigInt(9) }]);
+    const delegate = mockDelegate([{ id: "1", sequencial: BigInt(9) }], { total: 11 });
 
     const result: any = await executePrismaQuery(
       delegate as any,
@@ -185,7 +251,7 @@ describe("executePrismaQuery — formato da resposta", () => {
 });
 
 describe("executePrismaQuery — cache da contagem", () => {
-  const paginado = { where: { enabled: true }, page: 1, skip: 0, take: 2 };
+  const paginado = { where: { enabled: true }, page: 1, skip: 0, take: 2, deriveTotal: true };
 
   beforeEach(() => {
     invalidateCountCache();

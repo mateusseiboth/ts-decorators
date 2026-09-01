@@ -108,7 +108,7 @@ describe("Auditable", () => {
       return { ContaController, buscas };
     }
 
-    test("por padrão NÃO busca o registro antigo — before vem nulo", async () => {
+    test("por PADRÃO busca o registro antigo — comportamento histórico", async () => {
       const entries: AuditEntry[] = [];
       setAuditStorage(async (entry) => entries.push(entry));
 
@@ -121,16 +121,16 @@ describe("Auditable", () => {
       );
       await new Promise((r) => setTimeout(r, 20));
 
-      expect(buscas.length).toBe(0);
-      expect(entries[0]!.before).toBe(null);
+      expect(buscas.length).toBe(1);
+      expect(entries[0]!.before).toEqual({ id: "7", valor: 1 });
     });
 
-    test("captureBefore: true volta a buscar o registro antigo", async () => {
+    test("captureBefore: false poupa a consulta e deixa o before nulo", async () => {
       const entries: AuditEntry[] = [];
       setAuditStorage(async (entry) => entries.push(entry));
 
       const { ContaController, buscas } = ctrlComTx({ id: "7", valor: 1 });
-      Auditable({ captureBefore: true })(ContaController as any);
+      Auditable({ captureBefore: false })(ContaController as any);
 
       await new ContaController().update(
         mockReq({ params: { id: "7" }, body: { valor: 99 } }),
@@ -138,8 +138,8 @@ describe("Auditable", () => {
       );
       await new Promise((r) => setTimeout(r, 20));
 
-      expect(buscas.length).toBe(1);
-      expect(entries[0]!.before).toEqual({ id: "7", valor: 1 });
+      expect(buscas.length).toBe(0);
+      expect(entries[0]!.before).toBe(null);
     });
 
     test("sem resposta capturada, o after cai no body da requisição", async () => {

@@ -1,7 +1,7 @@
 import "reflect-metadata";
 import { logger } from "../functions/logger";
 import { isDecoratorContext, warnLegacy } from "./_proxy";
-import { bumpMetadataVersion, createMetadataCache } from "./metadata";
+import { bumpMetadataVersion, createMetadataCache, freezeIfEnabled } from "./metadata";
 
 /** Metadados de um campo aninhado (relação para outro Model). */
 export interface NestedModelMeta {
@@ -148,7 +148,8 @@ function resolveNestedModels(target: any): Readonly<Record<string, NestedModelMe
     }
   }
 
-  return Object.freeze(result);
+  // COMPARTILHADO entre todas as leituras — trate como somente leitura.
+  return freezeIfEnabled(result);
 }
 
 /** Todas as relações de um model, achatadas e memorizadas. Somente leitura. */

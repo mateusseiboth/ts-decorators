@@ -9,6 +9,7 @@ import {
   getFieldTypeByKey,
   getFieldTypes,
 } from "../src/decorators/initFields";
+import { setFreezeMetadata } from "../src/decorators/metadata";
 import { getNestedModelMeta } from "../src/decorators/nestedModel";
 import { collectFieldMeta } from "../src/functions/collectFieldsTypes";
 import { BairroModel, PostModel, ProfileModel, RuaModel, UserModel } from "./_models";
@@ -23,9 +24,29 @@ describe("cache de metadata reflexiva", () => {
     expect(second).toBe(first);
   });
 
-  test("o mapa memoizado é congelado — consumidor não corrompe o cache", () => {
+  test("por padrão o mapa NÃO é congelado — quem mutava não estoura", () => {
+    expect(Object.isFrozen(getFieldTypes(RuaModel.prototype))).toBe(false);
+  });
+
+  test("setFreezeMetadata(true) congela e protege o cache de mutação", () => {
+    setFreezeMetadata(true);
+    clearMetadataCache();
+    try {
+      const types = getFieldTypes(RuaModel.prototype);
+      expect(Object.isFrozen(types)).toBe(true);
+      expect(Object.isFrozen(collectFieldMeta(RuaModel.prototype).types)).toBe(true);
+      expect(getNestedModelMeta(RuaModel.prototype, "bairro")?.model).toBe(BairroModel);
+    } finally {
+      setFreezeMetadata(false);
+      clearMetadataCache();
+    }
+  });
+
+  test("o mapa memoizado é COMPARTILHADO — a mesma referência para todo mundo", () => {
+    // Não é congelado de propósito: congelar faria estourar em strict mode quem
+    // já mutava o retorno. O contrato é "somente leitura", combinado, não imposto.
     const types = getFieldTypes(RuaModel.prototype) as Record<string, string>;
-    expect(Object.isFrozen(types)).toBe(true);
+    expect(getFieldTypes(RuaModel.prototype)).toBe(types);
   });
 
   test("clearMetadataCache força uma nova resolução", () => {

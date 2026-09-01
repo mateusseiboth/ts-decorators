@@ -28,6 +28,29 @@ export function clearMetadataCache(): void {
   bumpMetadataVersion();
 }
 
+let _freeze = false;
+
+/**
+ * Congela os mapas memorizados de metadata. Default: `false`.
+ *
+ * O resultado é COMPARTILHADO entre todas as leituras, então mutá-lo corrompe o
+ * cache de todo mundo. Congelar transforma isso num erro em vez de um bug
+ * silencioso — mas em strict mode a mutação passa a ESTOURAR, o que muda o
+ * comportamento de quem já mutava. Por isso é opt-in, no bootstrap do projeto.
+ */
+export function setFreezeMetadata(enabled: boolean): void {
+  _freeze = enabled;
+}
+
+export function getFreezeMetadata(): boolean {
+  return _freeze;
+}
+
+/** Congela o valor quando o projeto pediu; caso contrário devolve como veio. */
+export function freezeIfEnabled<T>(value: T): T {
+  return _freeze ? Object.freeze(value) : value;
+}
+
 export interface MetadataCache<K extends object, V> {
   /** Devolve o valor memorizado ou calcula (e guarda) na primeira leitura. */
   get(key: K, compute: (key: K) => V): V;

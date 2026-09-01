@@ -49,12 +49,12 @@ export function setTransactionalCompanyFn(fn: AddCompanyFn) {
 /**
  * Quando o @TransactionalClass gasta um SAVEPOINT em cada escrita.
  *
- * - `"auto"` (padrão): só a partir da SEGUNDA escrita da mesma transação — que
+ * - `"auto"`: só a partir da SEGUNDA escrita da mesma transação — que
  *   é quando existe trabalho anterior para preservar. Um savepoint aberto antes
  *   da primeira escrita não protege nada: se ela falhar, voltar até ali é o
  *   mesmo que abortar a transação inteira, que é justamente o que o
  *   `Transactional` faz ao receber o erro.
- * - `"always"`: comportamento histórico, um savepoint por escrita.
+ * - `"always"` (padrão): um savepoint por escrita, como sempre foi.
  * - `"never"`: nunca — a transação inteira é a unidade de rollback.
  *
  * `SAVEPOINT` + `RELEASE` são DUAS idas ao banco por escrita. Em `"auto"`, a
@@ -65,7 +65,7 @@ export function setTransactionalCompanyFn(fn: AddCompanyFn) {
  */
 export type SavepointPolicy = "auto" | "always" | "never";
 
-let _savepointPolicy: SavepointPolicy = "auto";
+let _savepointPolicy: SavepointPolicy = "always";
 
 export function setSavepointPolicy(policy: SavepointPolicy): void {
   _savepointPolicy = policy;
