@@ -57,3 +57,16 @@ export function getHandlerContext(): HandlerContext | undefined {
 export function requireHandlerContext(message?: string): HandlerContext {
   return _requireContext(message);
 }
+
+/**
+ * Publica um valor do request tanto no `res.locals` quanto no contexto, quando
+ * há um configurado.
+ *
+ * Projeto que guarda o estado do request no AsyncLocalStorage (e não no `res`)
+ * precisava forkar os middlewares só para trocar o destino da escrita.
+ */
+export function publishRequestValue(res: any, key: string, value: unknown): void {
+  if (res?.locals) res.locals[key] = value;
+  const ctx = getHandlerContext();
+  if (ctx) ctx[key] = value;
+}

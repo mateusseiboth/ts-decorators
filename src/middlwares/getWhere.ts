@@ -5,6 +5,7 @@ import { Controller } from "../Controller";
 import { getModel } from "../decorators/getModel";
 import { getFieldTypes } from "../decorators/initFields";
 import { collectFieldMeta } from "../functions/collectFieldsTypes";
+import { publishRequestValue } from "../handlers/context";
 
 function expandRanges(rawValues: string[], isNumeric: boolean, typePrefix?: string) {
   const expanded: string[] = [];
@@ -104,7 +105,7 @@ export function getWhere<T extends object>(
     };
   }
 
-  res.locals.where = where;
+  publishRequestValue(res, "where", where);
   next();
 }
 

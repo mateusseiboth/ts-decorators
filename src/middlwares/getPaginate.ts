@@ -1,5 +1,7 @@
 import type { NextFunction, Request, Response } from "express";
 
+import { publishRequestValue } from "../handlers/context";
+
 export function getPaginate(req: Request, res: Response, next: NextFunction) {
   if (req.headers.paginate === "true") {
     const page = req.headers.page ? parseInt(req.headers.page as string) : 1;
@@ -10,7 +12,7 @@ export function getPaginate(req: Request, res: Response, next: NextFunction) {
       page,
     };
 
-    res.locals.paginate = paginate;
+    publishRequestValue(res, "paginate", paginate);
   }
 
   next();

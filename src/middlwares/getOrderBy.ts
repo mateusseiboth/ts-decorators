@@ -2,6 +2,7 @@ import type { NextFunction, Request, Response } from "express";
 
 import { getModel } from "../decorators/getModel";
 import { getFieldTypes } from "../decorators/initFields";
+import { publishRequestValue } from "../handlers/context";
 
 export function getOrderBy<T>(
   req: Request,
@@ -22,6 +23,6 @@ export function getOrderBy<T>(
       ? [{ [key]: req.query.orderMethod }]
       : [];
 
-  res.locals.orderBy = orderBy;
+  publishRequestValue(res, "orderBy", orderBy);
   next();
 }
