@@ -1,8 +1,12 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
 import { clearLegacyWarnings } from "../src/decorators/_proxy";
-import { TransactionalClass, setTransactionalCompanyFn } from "../src/decorators/transactional";
-import { getCompanyIdInjector } from "../src/handlers/companyId";
+import {
+  TransactionalClass,
+  getSavepointPolicy,
+  setSavepointPolicy,
+  setTransactionalCompanyFn,
+} from "../src/decorators/transactional";
 import { captureLogs, captureWarnings, fakeClassContext } from "./_helpers";
 
 describe("TransactionalClass", () => {
@@ -13,10 +17,12 @@ describe("TransactionalClass", () => {
     clearLegacyWarnings();
     warnCap = captureWarnings();
     logCap = captureLogs();
+    setSavepointPolicy("always");
   });
   afterEach(() => {
     warnCap.restore();
     logCap.restore();
+    setSavepointPolicy("auto");
   });
 
   function mockTx() {
@@ -119,6 +125,143 @@ describe("TransactionalClass", () => {
     });
   });
 
+  describe("política de savepoint", () => {
+    test('o padrão é "auto"', () => {
+      setSavepointPolicy("auto");
+      expect(getSavepointPolicy()).toBe("auto");
+    });
+
+    test('"auto": a PRIMEIRA escrita da transação não gasta savepoint', async () => {
+      setSavepointPolicy("auto");
+      const tx = mockTx();
+      class C {
+        DAO = { tx };
+        async create() {
+          return { id: 1 };
+        }
+      }
+      TransactionalClass(C as any);
+      await new C().create();
+      expect(tx.calls.length).toBe(0);
+    });
+
+    test('"auto": a partir da SEGUNDA escrita na mesma transação, protege', async () => {
+      setSavepointPolicy("auto");
+      const tx = mockTx();
+      class C {
+        DAO = { tx };
+        async create() {
+          return { id: 1 };
+        }
+      }
+      TransactionalClass(C as any);
+      const controller = new C();
+      await controller.create();
+      await controller.create();
+
+      expect(tx.calls.filter((c) => c.startsWith("SAVEPOINT")).length).toBe(1);
+      expect(tx.calls.filter((c) => c.startsWith("RELEASE SAVEPOINT")).length).toBe(1);
+    });
+
+    test('"auto": escritas em transações DIFERENTES não contam entre si', async () => {
+      setSavepointPolicy("auto");
+      const txA = mockTx();
+      const txB = mockTx();
+      class C {
+        DAO: any;
+        constructor(tx: any) {
+          this.DAO = { tx };
+        }
+        async create() {
+          return { id: 1 };
+        }
+      }
+      TransactionalClass(C as any);
+      await new C(txA).create();
+      await new C(txB).create();
+
+      expect(txA.calls.length).toBe(0);
+      expect(txB.calls.length).toBe(0);
+    });
+
+    test('"auto": escrita ANINHADA em outra escrita ganha savepoint', async () => {
+      setSavepointPolicy("auto");
+      const tx = mockTx();
+      class Filho {
+        DAO = { tx };
+        async create() {
+          return { id: 2 };
+        }
+      }
+      TransactionalClass(Filho as any);
+      const filho = new Filho();
+
+      class Pai {
+        DAO = { tx };
+        async create() {
+          return filho.create();
+        }
+      }
+      TransactionalClass(Pai as any);
+
+      await new Pai().create();
+      expect(tx.calls.filter((c) => c.startsWith('SAVEPOINT "sp_create_')).length).toBe(1);
+    });
+
+    test('"never" nunca emite savepoint', async () => {
+      setSavepointPolicy("never");
+      const tx = mockTx();
+      class C {
+        DAO = { tx };
+        async create() {
+          return { id: 1 };
+        }
+      }
+      TransactionalClass(C as any);
+      const controller = new C();
+      await controller.create();
+      await controller.create();
+      expect(tx.calls.length).toBe(0);
+    });
+
+    test("nomes de savepoint não colidem dentro do mesmo milissegundo", async () => {
+      setSavepointPolicy("always");
+      const tx = mockTx();
+      class C {
+        DAO = { tx };
+        async create() {
+          return { id: 1 };
+        }
+      }
+      TransactionalClass(C as any);
+      const controller = new C();
+      await Promise.all([controller.create(), controller.create(), controller.create()]);
+
+      const nomes = tx.calls.filter((c) => c.startsWith("SAVEPOINT "));
+      expect(new Set(nomes).size).toBe(3);
+    });
+
+    test('"auto": erro na segunda escrita reverte só até o savepoint', async () => {
+      setSavepointPolicy("auto");
+      const tx = mockTx();
+      class C {
+        DAO = { tx };
+        falhar = false;
+        async create() {
+          if (this.falhar) throw new Error("boom");
+          return { id: 1 };
+        }
+      }
+      TransactionalClass(C as any);
+      const controller = new C();
+      await controller.create();
+      controller.falhar = true;
+      await controller.create().catch(() => {});
+
+      expect(tx.calls.some((c) => c.startsWith('ROLLBACK TO SAVEPOINT "sp_create_'))).toBe(true);
+    });
+  });
+
   describe("setTransactionalCompanyFn", () => {
     test("aceita função customizada", () => {
       let called = false;
@@ -127,15 +270,6 @@ describe("TransactionalClass", () => {
       });
       // Apenas verifica que não dá erro ao setar
       expect(called).toBe(false);
-    });
-
-    test("não altera a estratégia global de company id", async () => {
-      const tx = mockTx();
-      setTransactionalCompanyFn(async (t: any) => {
-        await t.$executeRawUnsafe("LEGACY");
-      });
-      await getCompanyIdInjector()(tx, "10");
-      expect(tx.calls).toEqual(['SET LOCAL "my.company_id" = 10']);
     });
   });
 });

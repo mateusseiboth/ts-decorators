@@ -1,5 +1,6 @@
 import type { NextFunction, Request, Response } from "express";
 
+import { logger } from "../functions/logger";
 import { AuditLogger } from "../storage/AuditLogger";
 import { getHandlerContext } from "./context";
 
@@ -50,7 +51,7 @@ export function Audit(options?: { action?: string }) {
           requestId: ctx?.requestId,
         });
       } catch (err) {
-        console.error("[@mateusseiboth/ts-commons][Audit] Failed to log:", err);
+        logger.error("[@mateusseiboth/ts-commons][Audit] Failed to log:", err);
       }
 
       return result;

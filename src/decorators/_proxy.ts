@@ -8,6 +8,8 @@
  * (uma vez por nome de decorator).
  */
 
+import { logger } from "../functions/logger";
+
 const _legacyWarnings = new Set<string>();
 
 /** Detecta se o argumento é um DecoratorContext TC39 Stage 3 */
@@ -25,7 +27,7 @@ export function isDecoratorContext(arg: any): boolean {
 export function warnLegacy(name: string): void {
   if (_legacyWarnings.has(name)) return;
   _legacyWarnings.add(name);
-  console.warn(
+  logger.warn(
     `[@mateusseiboth/ts-commons] ⚠️  Decorator @${name} está sendo usado no padrão LEGACY (experimentalDecorators). ` +
       `Migre para o novo padrão TC39 Stage 3 decorators.`,
   );

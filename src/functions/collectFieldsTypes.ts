@@ -1,5 +1,6 @@
 import { getFieldTypes } from "../decorators/initFields";
-import { getNestedModelMeta } from "../decorators/nestedModel";
+import { createMetadataCache } from "../decorators/metadata";
+import { getNestedModels } from "../decorators/nestedModel";
 
 /**
  * Metadados achatados de um model, usados pelo getWhere para montar filtros.
@@ -19,6 +20,44 @@ export interface FieldMeta {
 }
 
 /**
+ * Resultado por model, sem prefixo — o caso de 100% das requisições. A árvore
+ * inteira (relações aninhadas incluídas) é montada uma vez por classe.
+ */
+const FIELD_META_CACHE = createMetadataCache<object, FieldMeta>();
+
+/**
+ * A caminhada usa o PROTOTYPE do model aninhado, nunca `new Model()`.
+ * Instanciar rodava o construtor do model (datas, BigInt, defaults) a cada
+ * requisição só para descobrir nomes de campo — e o prototype responde o mesmo.
+ */
+function walk(target: any, prefix: string, ancestors: Set<any>): FieldMeta {
+  const fields = getFieldTypes(target);
+  const nestedModels = getNestedModels(target);
+  const types: Record<string, string> = {};
+  const listPaths = new Set<string>();
+
+  const ctor = typeof target === "function" ? target : target?.constructor;
+  if (ctor && ancestors.has(ctor)) return { types, listPaths }; // ciclo detectado
+  const nextAncestors = new Set(ancestors);
+  if (ctor) nextAncestors.add(ctor);
+
+  for (const key in fields) {
+    const path = `${prefix}${key}`;
+    types[path] = fields[key] as string;
+
+    const nestedMeta = nestedModels[key];
+    if (!nestedMeta) continue;
+
+    if (nestedMeta.isArray) listPaths.add(path);
+    const child = walk((nestedMeta.model as any).prototype, `${path}.`, nextAncestors);
+    Object.assign(types, child.types);
+    child.listPaths.forEach((p) => listPaths.add(p));
+  }
+
+  return { types, listPaths };
+}
+
+/**
  * Coleta (recursivamente) os tipos de campo de um model, achatando relações
  * aninhadas em chaves com ponto que o getWhere usa para montar filtros.
  *
@@ -28,37 +67,24 @@ export interface FieldMeta {
  *   segmento com `some` (a notação por ponto sozinha não é válida para listas
  *   no Prisma).
  * - `ancestors` evita recursão infinita em relações cíclicas.
+ *
+ * O resultado sem prefixo é memorizado por model — trate-o como SOMENTE LEITURA.
  */
 export function collectFieldMeta(
   instance: any,
   prefix = "",
   ancestors: Set<any> = new Set(),
 ): FieldMeta {
-  const fields = getFieldTypes(instance);
-  const types: Record<string, string> = {};
-  const listPaths = new Set<string>();
-
-  const ctor = instance?.constructor;
-  if (ctor && ancestors.has(ctor)) return { types, listPaths }; // ciclo detectado
-  const nextAncestors = new Set(ancestors);
-  if (ctor) nextAncestors.add(ctor);
-
-  for (const key in fields) {
-    const path = `${prefix}${key}`;
-    //@ts-ignore dynamic key, possible injection
-    types[path] = fields[key];
-
-    const nestedMeta = getNestedModelMeta(instance, key);
-    if (nestedMeta) {
-      if (nestedMeta.isArray) listPaths.add(path);
-      const nestedInstance = new (nestedMeta.model as any)();
-      const child = collectFieldMeta(nestedInstance, `${path}.`, nextAncestors);
-      Object.assign(types, child.types);
-      child.listPaths.forEach((p) => listPaths.add(p));
-    }
+  const cacheable = prefix === "" && ancestors.size === 0;
+  if (!cacheable || !instance || typeof instance !== "object") {
+    return walk(instance, prefix, ancestors);
   }
 
-  return { types, listPaths };
+  return FIELD_META_CACHE.get(instance as object, (target) => {
+    const meta = walk(target, "", new Set());
+    Object.freeze(meta.types);
+    return Object.freeze(meta);
+  });
 }
 
 /**

@@ -28,6 +28,7 @@
 
 import type { NextFunction, Request, Response } from "express";
 
+import { logger } from "../functions/logger";
 import type { CompanyIdInjector } from "../handlers/companyId";
 import { isDecoratorContext, warnLegacy } from "./_proxy";
 
@@ -44,6 +45,48 @@ let _addCompanyFn: AddCompanyFn | null = null;
 export function setTransactionalCompanyFn(fn: AddCompanyFn) {
   _addCompanyFn = fn;
 }
+
+/**
+ * Quando o @TransactionalClass gasta um SAVEPOINT em cada escrita.
+ *
+ * - `"auto"` (padrão): só a partir da SEGUNDA escrita da mesma transação — que
+ *   é quando existe trabalho anterior para preservar. Um savepoint aberto antes
+ *   da primeira escrita não protege nada: se ela falhar, voltar até ali é o
+ *   mesmo que abortar a transação inteira, que é justamente o que o
+ *   `Transactional` faz ao receber o erro.
+ * - `"always"`: comportamento histórico, um savepoint por escrita.
+ * - `"never"`: nunca — a transação inteira é a unidade de rollback.
+ *
+ * `SAVEPOINT` + `RELEASE` são DUAS idas ao banco por escrita. Em `"auto"`, a
+ * rota comum (uma escrita por request) deixa de pagar as duas.
+ *
+ * Escolha `"always"` se o seu código captura o erro de uma escrita e SEGUE
+ * usando a mesma transação — sem savepoint o Postgres já abortou tudo.
+ */
+export type SavepointPolicy = "auto" | "always" | "never";
+
+let _savepointPolicy: SavepointPolicy = "auto";
+
+export function setSavepointPolicy(policy: SavepointPolicy): void {
+  _savepointPolicy = policy;
+}
+
+export function getSavepointPolicy(): SavepointPolicy {
+  return _savepointPolicy;
+}
+
+/** Escritas decoradas já executadas em cada transação (para a política "auto"). */
+const _writesByTx = new WeakMap<object, number>();
+
+/** Sequencial do nome do savepoint — `Date.now()` colidia dentro do mesmo ms. */
+let _savepointSeq = 0;
+
+/** Decide se ESTA escrita abre um savepoint, e contabiliza a escrita na transação. */
+const savepointDecision: Record<SavepointPolicy, (tx: object) => boolean> = {
+  never: () => false,
+  always: () => true,
+  auto: (tx) => (_writesByTx.get(tx) ?? 0) > 0,
+};
 
 /**
  * Middleware factory: cria uma transação e injeta em res.locals.tx.
@@ -101,7 +144,7 @@ export function Transactional(
         // Se já respondeu, não faz nada (rollback já aconteceu)
         if (res.headersSent) {
           if (!(err instanceof TransactionAbortError)) {
-            console.error(
+            logger.error(
               "[@mateusseiboth/ts-commons] Transactional: Erro pós-resposta (rollback executado):",
               err.message,
             );
@@ -137,36 +180,39 @@ export function TransactionalClass<T extends { new (...args: any[]): any }>(
 
     descriptor.value = async function (this: any, ...args: any[]) {
       const tx = this.DAO?.tx;
+      if (!tx?.$executeRawUnsafe) return originalMethod.call(this, ...args);
 
-      // Se tem transação, cria um savepoint para rollback parcial
-      if (tx?.$executeRawUnsafe) {
-        const savepointName = `sp_${methodName}_${Date.now()}`;
-        try {
-          await tx.$executeRawUnsafe(`SAVEPOINT "${savepointName}"`);
-          console.log(
+      const useSavepoint = savepointDecision[_savepointPolicy](tx);
+      _writesByTx.set(tx, (_writesByTx.get(tx) ?? 0) + 1);
+
+      if (!useSavepoint) return originalMethod.call(this, ...args);
+
+      const savepointName = `sp_${methodName}_${++_savepointSeq}`;
+      try {
+        await tx.$executeRawUnsafe(`SAVEPOINT "${savepointName}"`);
+        logger.debug(
+          () =>
             `[@mateusseiboth/ts-commons] Transactional: ${constructor.name}.${methodName} → SAVEPOINT criado (${savepointName})`,
-          );
-          const result = await originalMethod.call(this, ...args);
-          await tx.$executeRawUnsafe(`RELEASE SAVEPOINT "${savepointName}"`);
-          console.log(
+        );
+        const result = await originalMethod.call(this, ...args);
+        await tx.$executeRawUnsafe(`RELEASE SAVEPOINT "${savepointName}"`);
+        logger.debug(
+          () =>
             `[@mateusseiboth/ts-commons] Transactional: ${constructor.name}.${methodName} → SAVEPOINT liberado (${savepointName})`,
-          );
-          return result;
-        } catch (err) {
-          try {
-            await tx.$executeRawUnsafe(`ROLLBACK TO SAVEPOINT "${savepointName}"`);
-            console.log(
+        );
+        return result;
+      } catch (err) {
+        try {
+          await tx.$executeRawUnsafe(`ROLLBACK TO SAVEPOINT "${savepointName}"`);
+          logger.debug(
+            () =>
               `[@mateusseiboth/ts-commons] Transactional: ${constructor.name}.${methodName} → SAVEPOINT revertido (${savepointName})`,
-            );
-          } catch {
-            // Savepoint pode já ter sido rolled back
-          }
-          throw err;
+          );
+        } catch {
+          // Savepoint pode já ter sido rolled back
         }
+        throw err;
       }
-
-      // Sem transação: executa normalmente
-      return originalMethod.call(this, ...args);
     };
 
     Object.defineProperty(constructor.prototype, methodName, descriptor);

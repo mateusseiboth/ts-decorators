@@ -30,3 +30,18 @@ export function getModelKeys(modelClass: any) {
 
   return Array.from(new Set(protoKeys));
 }
+
+/**
+ * JSON determinístico para compor chave de cache: as chaves do primeiro nível são
+ * ordenadas, então `{a,b}` e `{b,a}` geram a MESMA string.
+ */
+export function stableStringify(obj: any): string {
+  if (!obj || typeof obj !== "object") return String(obj ?? "");
+  const sorted = Object.keys(obj)
+    .sort()
+    .reduce((acc: any, k) => {
+      acc[k] = obj[k];
+      return acc;
+    }, {});
+  return JSON.stringify(sorted);
+}

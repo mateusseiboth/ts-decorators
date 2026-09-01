@@ -15,6 +15,7 @@
 import "reflect-metadata";
 import { makeMethodDecorator } from "./_method";
 import { isDecoratorContext, warnLegacy } from "./_proxy";
+import { bumpMetadataVersion, createMetadataCache } from "./metadata";
 
 const MASK_FIELDS_KEY = "mask:fields";
 
@@ -31,8 +32,29 @@ interface FieldMeta extends Required<MaskOptions> {
 
 const DEFAULTS: Required<MaskOptions> = { maskChar: "*", visible: 0 };
 
-function getMaskFields(ctor: any): FieldMeta[] {
-  return Reflect.getMetadata(MASK_FIELDS_KEY, ctor) ?? [];
+const MASK_CACHE = createMetadataCache<object, readonly FieldMeta[]>();
+
+const NO_FIELDS: readonly FieldMeta[] = Object.freeze([]);
+
+/** Campos marcados na classe, vindos do registro legacy E do metadata TC39. */
+function resolveMaskFields(ctor: any): readonly FieldMeta[] {
+  const legacy: FieldMeta[] = Reflect.getMetadata(MASK_FIELDS_KEY, ctor) ?? [];
+  const tc39: FieldMeta[] =
+    (typeof Symbol !== "undefined" && Symbol.metadata
+      ? (ctor?.[Symbol.metadata]?.[MASK_FIELDS_KEY] as FieldMeta[] | undefined)
+      : undefined) ?? [];
+
+  if (!legacy.length && !tc39.length) return NO_FIELDS;
+  return Object.freeze([...tc39, ...legacy]);
+}
+
+/**
+ * Lista memorizada dos campos sensíveis da classe. `applyMask` roda por
+ * resposta; reler a metadata reflexiva a cada chamada era puro desperdício.
+ */
+function getMaskFields(ctor: any): readonly FieldMeta[] {
+  if (!ctor || (typeof ctor !== "object" && typeof ctor !== "function")) return NO_FIELDS;
+  return MASK_CACHE.get(ctor as object, resolveMaskFields);
 }
 
 function maskValue(value: unknown, opts: Required<MaskOptions>): unknown {
@@ -72,6 +94,7 @@ export function MaskSensitive(options?: MaskOptions) {
       const meta = (context.metadata[MASK_FIELDS_KEY] as FieldMeta[]) ?? [];
       meta.push({ field: String(context.name), ...opts });
       (context.metadata as any)[MASK_FIELDS_KEY] = meta;
+      bumpMetadataVersion();
       return;
     }
 
@@ -90,9 +113,10 @@ export function MaskSensitive(options?: MaskOptions) {
       warnLegacy("MaskSensitive");
       const target = args[0];
       const propertyKey = args[1] as string;
-      const list = getMaskFields(target.constructor);
+      const list: FieldMeta[] = Reflect.getMetadata(MASK_FIELDS_KEY, target.constructor) ?? [];
       list.push({ field: propertyKey, ...opts });
       Reflect.defineMetadata(MASK_FIELDS_KEY, list, target.constructor);
+      bumpMetadataVersion();
       return;
     }
 

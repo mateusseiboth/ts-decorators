@@ -84,4 +84,103 @@ describe("Auditable", () => {
       expect(warnCap.warnings.filter((w) => w.includes("Auditable")).length).toBe(0);
     });
   });
+
+  describe("estado anterior (before)", () => {
+    function ctrlComTx(before: any) {
+      const buscas: any[] = [];
+      const tx = {
+        conta: {
+          findUnique: async (args: any) => {
+            buscas.push(args);
+            return before;
+          },
+        },
+      };
+
+      class ContaController {
+        DAO = { tx };
+        data = { valor: 10 };
+        async update(_req: any, res: any) {
+          return res.json({ data: { id: "7" } });
+        }
+      }
+
+      return { ContaController, buscas };
+    }
+
+    test("por padrão NÃO busca o registro antigo — before vem nulo", async () => {
+      const entries: AuditEntry[] = [];
+      setAuditStorage(async (entry) => entries.push(entry));
+
+      const { ContaController, buscas } = ctrlComTx({ id: "7", valor: 1 });
+      Auditable(ContaController as any);
+
+      await new ContaController().update(
+        mockReq({ params: { id: "7" }, body: { valor: 99 } }),
+        mockRes({ locals: { userInfo: { id: "u" }, entity: 1 } }),
+      );
+      await new Promise((r) => setTimeout(r, 20));
+
+      expect(buscas.length).toBe(0);
+      expect(entries[0]!.before).toBe(null);
+    });
+
+    test("captureBefore: true volta a buscar o registro antigo", async () => {
+      const entries: AuditEntry[] = [];
+      setAuditStorage(async (entry) => entries.push(entry));
+
+      const { ContaController, buscas } = ctrlComTx({ id: "7", valor: 1 });
+      Auditable({ captureBefore: true })(ContaController as any);
+
+      await new ContaController().update(
+        mockReq({ params: { id: "7" }, body: { valor: 99 } }),
+        mockRes({ locals: { userInfo: { id: "u" }, entity: 1 } }),
+      );
+      await new Promise((r) => setTimeout(r, 20));
+
+      expect(buscas.length).toBe(1);
+      expect(entries[0]!.before).toEqual({ id: "7", valor: 1 });
+    });
+
+    test("sem resposta capturada, o after cai no body da requisição", async () => {
+      const entries: AuditEntry[] = [];
+      setAuditStorage(async (entry) => entries.push(entry));
+
+      class Ctrl {
+        DAO = { tx: null };
+        async update(_req: any, res: any) {
+          res.statusCode = 204;
+          return res;
+        }
+      }
+      Auditable(Ctrl as any);
+
+      await new Ctrl().update(
+        mockReq({ params: { id: "1" }, body: { nome: "Ana" } }),
+        mockRes({ locals: { entity: 1 } }),
+      );
+      await new Promise((r) => setTimeout(r, 20));
+
+      expect(entries[0]!.after).toEqual({ nome: "Ana" });
+    });
+
+    test("a fábrica com options não exige argumento nenhum", async () => {
+      const entries: AuditEntry[] = [];
+      setAuditStorage(async (entry) => entries.push(entry));
+
+      class Ctrl {
+        DAO = { tx: null };
+        async create(_req: any, res: any) {
+          return res.json({ data: { id: "9" } });
+        }
+      }
+      Auditable()(Ctrl as any);
+
+      await new Ctrl().create(mockReq(), mockRes({ locals: { entity: 2 } }));
+      await new Promise((r) => setTimeout(r, 20));
+
+      expect(entries[0]!.action).toBe("CREATE");
+      expect(entries[0]!.entityId).toBe("9");
+    });
+  });
 });

@@ -1,48 +1,109 @@
 import { isDecoratorContext, warnLegacy } from "./_proxy";
-import { getFieldTypeByKey, getFieldTypes } from "./initFields";
-import { getNestedModelMeta, type NestedModelMeta } from "./nestedModel";
+import { getFieldTypes } from "./initFields";
+import { createMetadataCache } from "./metadata";
+import { getNestedModels, type NestedModelMeta } from "./nestedModel";
+
+type PrimitiveConverter = (val: any) => any;
+
+const toNumber: PrimitiveConverter = (val) => {
+  const n = Number(val);
+  return isNaN(n) ? null : n;
+};
+
+const toBigInt: PrimitiveConverter = (val) => {
+  try {
+    return BigInt(val);
+  } catch {
+    return null;
+  }
+};
+
+const FALSY_BOOLEANS = new Set<unknown>(["false", 0, "0", "N"]);
+const TRUTHY_BOOLEANS = new Set<unknown>(["true", 1, "1", "S"]);
+
+const toBoolean: PrimitiveConverter = (val) => {
+  if (FALSY_BOOLEANS.has(val)) return false;
+  if (TRUTHY_BOOLEANS.has(val)) return true;
+  return Boolean(val);
+};
+
+const toDate: PrimitiveConverter = (val) => {
+  if (val instanceof Date) return val;
+  if (val === 0 || val === "0") return null;
+  const d = new Date(val);
+  return isNaN(d.getTime()) ? null : d;
+};
+
+const toString: PrimitiveConverter = (val) => String(val);
+
+/**
+ * Estratégias de conversão por tipo declarado no @Field. Cada tipo mapeia para
+ * um conversor; tipo desconhecido cai no fallback (mantém o valor original).
+ */
+const primitiveConverters: Record<string, PrimitiveConverter> = {
+  number: toNumber,
+  bigint: toBigInt,
+  boolean: toBoolean,
+  date: toDate,
+  string: toString,
+};
+
+function findConverter(type: string | undefined): PrimitiveConverter | undefined {
+  return primitiveConverters[type?.toLowerCase() ?? ""];
+}
 
 /**
  * Converte um único valor primitivo de acordo com o tipo declarado no @Field.
  * Mantém exatamente a mesma semântica histórica do @AutoConvert.
  */
 export function convertPrimitive(type: string | undefined, val: any): any {
+  return applyConverter(findConverter(type), val);
+}
+
+/** Aplica um conversor já resolvido, mantendo a semântica histórica do null. */
+function applyConverter(converter: PrimitiveConverter | undefined, val: any): any {
   if (val === null || val === undefined) return null;
+  return converter ? converter(val) : val;
+}
 
-  switch (type?.toLowerCase()) {
-    case "number": {
-      const n = Number(val);
-      return isNaN(n) ? null : n;
-    }
+/**
+ * O que fazer com UM campo do model: converter primitivo ou montar a relação.
+ *
+ * O conversor já vem resolvido (nada de `toLowerCase()` + lookup por campo, por
+ * requisição) e a relação já vem achatada.
+ */
+export interface FieldConversion {
+  /** Conversor do tipo declarado; ausente = valor passa como veio. */
+  convert?: PrimitiveConverter;
+  /** Relação declarada via `@Field(Model)` / `@Field([Model])`. */
+  nested?: NestedModelMeta;
+}
 
-    case "bigint":
-      try {
-        return BigInt(val);
-      } catch {
-        return null;
-      }
+export type ConversionPlan = ReadonlyMap<string, FieldConversion>;
 
-    case "boolean":
-      return val === "false" || val === 0 || val === "0" || val === "N"
-        ? false
-        : val === "true" || val === 1 || val === "1" || val === "S"
-          ? true
-          : Boolean(val);
+const PLAN_CACHE = createMetadataCache<object, ConversionPlan>();
+const EMPTY_PLAN: ConversionPlan = new Map();
 
-    case "date": {
-      if (val instanceof Date) return val;
-      if (val === 0 || val === "0") return null;
-      const d = new Date(val);
-      return isNaN(d.getTime()) ? null : d;
-    }
+function buildConversionPlan(proto: any): ConversionPlan {
+  const types = getFieldTypes(proto);
+  const nestedModels = getNestedModels(proto);
+  const plan = new Map<string, FieldConversion>();
 
-    case "string":
-      return String(val);
-
-    default:
-      // mantém original
-      return val;
+  for (const key of Object.keys(types)) {
+    const nested = nestedModels[key];
+    // O @NestedModel "puro" (autoConvert=false) NÃO instancia nada — só o
+    // @Field(Model)/@Field([Model]) ativa a conversão da relação.
+    plan.set(key, nested?.autoConvert ? { nested } : { convert: findConverter(types[key]) });
   }
+
+  return plan;
+}
+
+/** Plano de conversão da classe da instância, montado uma única vez por classe. */
+export function getConversionPlan(instance: any): ConversionPlan {
+  const proto = instance != null ? Object.getPrototypeOf(instance) : null;
+  if (!proto) return EMPTY_PLAN;
+  return PLAN_CACHE.get(proto, buildConversionPlan);
 }
 
 /**
@@ -73,15 +134,17 @@ function instantiateNested(model: Function, item: any): any {
   }
 
   // Fallback: converte campo a campo (incluindo aninhamento mais profundo).
-  const types = getFieldTypes(instance);
+  const plan = getConversionPlan(instance);
   for (const k of Object.keys(item)) {
-    if (!(k in types)) continue;
-    const childNested = getNestedModelMeta(instance, k);
-    if (childNested) {
-      instance[k] = convertNestedValue(childNested, item[k]);
-    } else {
-      instance[k] = convertPrimitive(getFieldTypeByKey(instance, k), item[k]);
-    }
+    const step = plan.get(k);
+    if (!step) continue;
+    // Aqui o @NestedModel "puro" TAMBÉM converte, como sempre converteu neste
+    // fallback — o plano guarda só o que o @Field(Model) marcou, então a
+    // relação é relida do model.
+    const nested = step.nested ?? getNestedModels(instance)[k];
+    instance[k] = nested
+      ? convertNestedValue(nested, item[k])
+      : applyConverter(step.convert, item[k]);
   }
   return instance;
 }
@@ -104,24 +167,16 @@ function convertNestedValue(meta: NestedModelMeta, value: any): any {
 /** Cria a função wrapper que faz a auto-conversão de tipos */
 function wrapWithAutoConvert(originalMethod: Function) {
   return function (this: any, data: any) {
-    const keysInModel = getFieldTypes(this);
     if (!data) return originalMethod.call(this, data);
 
-    Object.keys(data).forEach((key) => {
-      if (!(key in keysInModel)) return;
-
-      // Campos aninhados declarados via @Field(Model)/@Field([Model]) são
-      // instanciados/convertidos recursivamente. O @NestedModel "puro" NÃO
-      // ativa isso (autoConvert=false), preservando o comportamento histórico.
-      const nestedMeta = getNestedModelMeta(this, key);
-      if (nestedMeta?.autoConvert) {
-        data[key] = convertNestedValue(nestedMeta, data[key]);
-        return;
-      }
-
-      const type = getFieldTypeByKey(this, key);
-      data[key] = convertPrimitive(type, data[key]);
-    });
+    const plan = getConversionPlan(this);
+    for (const key of Object.keys(data)) {
+      const step = plan.get(key);
+      if (!step) continue;
+      data[key] = step.nested
+        ? convertNestedValue(step.nested, data[key])
+        : applyConverter(step.convert, data[key]);
+    }
 
     return originalMethod.call(this, data);
   };

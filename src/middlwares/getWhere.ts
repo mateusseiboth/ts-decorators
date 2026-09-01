@@ -54,26 +54,25 @@ export function getWhere<T extends object>(
   let where: Record<string, any> = {};
   const classRecord = getModel(classBase.tag);
   const { types: fieldTypes, listPaths } = collectFieldMeta(classRecord.prototype);
-  const keys = Object.keys(fieldTypes as T extends { [key: string]: any } ? T : never);
-
   const conditions: Record<string, any> = {};
 
-  keys.forEach((key) => {
-    if (req.query[key]) {
-      const condition = createWhereConditionQuery(
-        req.query[key] as string,
-        key,
-        fieldTypes,
-        listPaths,
-      );
+  // Percorre a QUERY (2-3 chaves), não o model inteiro (dezenas de campos, mais
+  // as relações achatadas). `hasOwn` garante que só campo declarado vira filtro.
+  for (const key of Object.keys(req.query ?? {})) {
+    if (!Object.hasOwn(fieldTypes, key) || !req.query[key]) continue;
 
-      if (!conditions[key]) conditions[key] = {};
-      if (condition.OR?.length)
-        conditions[key].OR = [...(conditions[key].OR || []), ...condition.OR];
-      if (condition.NOT?.length)
-        conditions[key].NOT = [...(conditions[key].NOT || []), ...condition.NOT];
-    }
-  });
+    const condition = createWhereConditionQuery(
+      req.query[key] as string,
+      key,
+      fieldTypes,
+      listPaths,
+    );
+
+    if (!conditions[key]) conditions[key] = {};
+    if (condition.OR?.length) conditions[key].OR = [...(conditions[key].OR || []), ...condition.OR];
+    if (condition.NOT?.length)
+      conditions[key].NOT = [...(conditions[key].NOT || []), ...condition.NOT];
+  }
 
   const finalConditions = Object.values(conditions);
 
@@ -226,31 +225,31 @@ export function buildWhereFromQuery<T extends object>(
 ) {
   const classRecord = getModel(classBase.tag);
   const fieldTypes = getFieldTypes(classRecord.prototype);
-  const keys = Object.keys(fieldTypes as T extends { [key: string]: any } ? T : never);
+  const keys = Object.keys(fieldTypes).filter(
+    (key) => Object.hasOwn(query, key) && query[key],
+  ) as (keyof typeof query)[];
 
   const conditions = [] as any;
 
   keys.forEach((key) => {
-    if (query[key]) {
-      const condition =
-        typeof query[key] === "object"
-          ? { OR: [{ [key]: query[key] }] }
-          : createWhereCondition(query[key] as string, key, fieldTypes);
+    const condition =
+      typeof query[key] === "object"
+        ? { OR: [{ [key]: query[key] }] }
+        : createWhereCondition(query[key] as string, key as string, fieldTypes);
 
-      if (condition?.OR?.length > 0) {
-        if (condition.OR.length > 1) {
-          conditions.push({ OR: condition.OR });
-        } else {
-          conditions.push(condition.OR[0]);
-        }
+    if (condition?.OR?.length > 0) {
+      if (condition.OR.length > 1) {
+        conditions.push({ OR: condition.OR });
+      } else {
+        conditions.push(condition.OR[0]);
       }
+    }
 
-      if (condition?.NOT?.length > 0) {
-        if (condition.NOT.length > 1) {
-          conditions.push({ NOT: { OR: condition.NOT } });
-        } else {
-          conditions.push({ NOT: condition.NOT[0] });
-        }
+    if (condition?.NOT?.length > 0) {
+      if (condition.NOT.length > 1) {
+        conditions.push({ NOT: { OR: condition.NOT } });
+      } else {
+        conditions.push({ NOT: condition.NOT[0] });
       }
     }
   });

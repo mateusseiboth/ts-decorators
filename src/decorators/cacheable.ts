@@ -15,6 +15,8 @@
  *
  */
 
+import { logger } from "../functions/logger";
+import { stableStringify } from "../functions/object";
 import { isDecoratorContext, warnLegacy } from "./_proxy";
 
 interface CacheEntry {
@@ -87,17 +89,6 @@ function invalidateForEntidade(className: string, entidade: string) {
   }
 }
 
-function stableStringify(obj: any): string {
-  if (!obj || typeof obj !== "object") return String(obj ?? "");
-  const sorted = Object.keys(obj)
-    .sort()
-    .reduce((acc: any, k) => {
-      acc[k] = obj[k];
-      return acc;
-    }, {});
-  return JSON.stringify(sorted);
-}
-
 function buildCacheKey(req: any, res?: any): string {
   const parts: string[] = [
     req.method || "GET",
@@ -133,24 +124,35 @@ function buildCacheKey(req: any, res?: any): string {
   return parts.join("|");
 }
 
-function evictExpired(entidadeCache: Map<string, CacheEntry>) {
-  const now = Date.now();
-  for (const [key, entry] of entidadeCache) {
-    if (entry.expiresAt < now) {
-      entidadeCache.delete(key);
-    }
-  }
-}
-
-function enforceMaxEntries(entidadeCache: Map<string, CacheEntry>, maxEntries: number) {
+/**
+ * Grava a resposta no cache, varrendo o mapa SÓ quando ele passa do limite.
+ *
+ * A varredura por expirados acontecia a cada MISS — isto é, a cada requisição
+ * não cacheada percorríamos as 200 entradas da entidade. Agora ela só entra em
+ * cena quando o mapa realmente cresceu além do teto, e a limpeza por expiração
+ * já é feita na leitura (entrada vencida é tratada como ausente).
+ */
+function storeEntry(
+  entidadeCache: Map<string, CacheEntry>,
+  cacheKey: string,
+  entry: CacheEntry,
+  maxEntries: number,
+) {
+  entidadeCache.set(cacheKey, entry);
   if (entidadeCache.size <= maxEntries) return;
-  // Remove as entradas mais antigas (primeiras no Map)
-  const toDelete = entidadeCache.size - maxEntries;
-  let count = 0;
+
+  const now = Date.now();
+  for (const [key, cached] of entidadeCache) {
+    if (cached.expiresAt < now) entidadeCache.delete(key);
+  }
+
+  // Ainda cheio depois de expurgar os vencidos: descarta os mais antigos
+  // (ordem de inserção do Map).
+  let excess = entidadeCache.size - maxEntries;
+  if (excess <= 0) return;
   for (const key of entidadeCache.keys()) {
-    if (count >= toDelete) break;
+    if (excess-- <= 0) break;
     entidadeCache.delete(key);
-    count++;
   }
 }
 
@@ -186,8 +188,9 @@ export function Cacheable(options?: CacheOptions) {
           // Verifica cache
           const cached = entidadeCache.get(cacheKey);
           if (cached && cached.expiresAt > Date.now()) {
-            console.log(
-              `[@mateusseiboth/ts-commons] Cache HIT ${className}.${methodName} (entidade: ${entidade})`,
+            logger.debug(
+              () =>
+                `[@mateusseiboth/ts-commons] Cache HIT ${className}.${methodName} (entidade: ${entidade})`,
             );
             res.setHeader("X-Cache", "HIT");
             return res.status(200).json(cached.data);
@@ -198,12 +201,12 @@ export function Cacheable(options?: CacheOptions) {
           res.json = function (body: any) {
             // Grava no cache apenas se status 2xx
             if (res.statusCode >= 200 && res.statusCode < 300) {
-              evictExpired(entidadeCache);
-              entidadeCache.set(cacheKey, {
-                data: body,
-                expiresAt: Date.now() + opts.ttl,
-              });
-              enforceMaxEntries(entidadeCache, opts.maxEntries);
+              storeEntry(
+                entidadeCache,
+                cacheKey,
+                { data: body, expiresAt: Date.now() + opts.ttl },
+                opts.maxEntries,
+              );
             }
             res.setHeader("X-Cache", "MISS");
             return originalJson(body);
@@ -253,8 +256,9 @@ export function CacheMethod(options?: { ttl?: number }) {
 
         const cached = entidadeCache.get(cacheKey);
         if (cached && cached.expiresAt > Date.now()) {
-          console.log(
-            `[@mateusseiboth/ts-commons] Cache HIT ${className}.${methodKey} (entidade: ${entidade})`,
+          logger.debug(
+            () =>
+              `[@mateusseiboth/ts-commons] Cache HIT ${className}.${methodKey} (entidade: ${entidade})`,
           );
           res.setHeader("X-Cache", "HIT");
           return res.status(200).json(cached.data);
@@ -263,11 +267,12 @@ export function CacheMethod(options?: { ttl?: number }) {
         const originalJson = res.json.bind(res);
         res.json = function (body: any) {
           if (res.statusCode >= 200 && res.statusCode < 300) {
-            evictExpired(entidadeCache);
-            entidadeCache.set(cacheKey, {
-              data: body,
-              expiresAt: Date.now() + ttl,
-            });
+            storeEntry(
+              entidadeCache,
+              cacheKey,
+              { data: body, expiresAt: Date.now() + ttl },
+              DEFAULT_OPTIONS.maxEntries,
+            );
           }
           res.setHeader("X-Cache", "MISS");
           return originalJson(body);
@@ -293,8 +298,9 @@ export function CacheMethod(options?: { ttl?: number }) {
 
       const cached = entidadeCache.get(cacheKey);
       if (cached && cached.expiresAt > Date.now()) {
-        console.log(
-          `[@mateusseiboth/ts-commons] Cache HIT ${className}.${methodKey} (entidade: ${entidade})`,
+        logger.debug(
+          () =>
+            `[@mateusseiboth/ts-commons] Cache HIT ${className}.${methodKey} (entidade: ${entidade})`,
         );
         res.setHeader("X-Cache", "HIT");
         return res.status(200).json(cached.data);
@@ -303,11 +309,12 @@ export function CacheMethod(options?: { ttl?: number }) {
       const originalJson = res.json.bind(res);
       res.json = function (body: any) {
         if (res.statusCode >= 200 && res.statusCode < 300) {
-          evictExpired(entidadeCache);
-          entidadeCache.set(cacheKey, {
-            data: body,
-            expiresAt: Date.now() + ttl,
-          });
+          storeEntry(
+            entidadeCache,
+            cacheKey,
+            { data: body, expiresAt: Date.now() + ttl },
+            DEFAULT_OPTIONS.maxEntries,
+          );
         }
         res.setHeader("X-Cache", "MISS");
         return originalJson(body);

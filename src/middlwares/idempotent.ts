@@ -1,5 +1,7 @@
 import type { NextFunction, Request, Response } from "express";
 
+import { logger } from "../functions/logger";
+
 interface CachedResponse {
   status: number;
   body: unknown;
@@ -12,15 +14,29 @@ interface PendingRequest {
 
 const requests = new Map<string, PendingRequest>();
 
-setInterval(() => {
-  const now = Date.now();
+/**
+ * A varredura de expirados só liga quando existe chave para expirar.
+ *
+ * O `setInterval` ficava no topo do módulo: qualquer import do pacote acordava
+ * o processo a cada 5s para varrer um Map vazio — inclusive em CLI e testes.
+ */
+let sweeper: ReturnType<typeof setInterval> | null = null;
 
-  for (const [key, value] of requests.entries()) {
-    if (value.expiresAt < now) {
-      requests.delete(key);
+function ensureSweeper(): void {
+  if (sweeper) return;
+  sweeper = setInterval(() => {
+    const now = Date.now();
+    for (const [key, value] of requests) {
+      if (value.expiresAt < now) requests.delete(key);
     }
-  }
-}, 5000);
+    if (requests.size === 0 && sweeper) {
+      clearInterval(sweeper);
+      sweeper = null;
+    }
+  }, 5000);
+  // Idempotência pendente não segura o processo de pé.
+  sweeper.unref?.();
+}
 
 interface Options {
   ttl?: number;
@@ -41,7 +57,7 @@ export function idempotencyMiddleware(options: Options = {}) {
     const existing = requests.get(key);
 
     if (existing) {
-      console.log(`Replaying response for idempotency key: ${key}`);
+      logger.debug(() => `Replaying response for idempotency key: ${key}`);
       const cached = await existing.promise;
 
       return res.status(cached.status).json(cached.body);
@@ -59,6 +75,7 @@ export function idempotencyMiddleware(options: Options = {}) {
       promise,
       expiresAt: Date.now() + ttl,
     });
+    ensureSweeper();
 
     const originalJson = res.json.bind(res);
 

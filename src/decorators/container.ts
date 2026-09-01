@@ -17,8 +17,9 @@
  */
 
 import "reflect-metadata";
-import { startCronJobs } from "./cron";
-import { initListeners } from "./listen";
+import { logger } from "../functions/logger";
+import { hasCronJobs, startCronJobs, stopCronJobs } from "./cron";
+import { disposeListeners, hasListeners, initListeners } from "./listen";
 import { initProcessors } from "./processor";
 
 const DI_PARAMTYPES_KEY = "di:paramtypes";
@@ -60,7 +61,14 @@ class Container {
     initListeners(instance);
     startCronJobs(instance);
     initProcessors(instance);
+    warnIfLeaky(target, scope, instance);
     return instance;
+  }
+
+  /** Cancela assinaturas e timers da instância — o oposto do que o `get` liga. */
+  private dispose(instance: any): void {
+    disposeListeners(instance);
+    stopCronJobs(instance);
   }
 
   private resolveScopeKey(target: any): string {
@@ -99,14 +107,37 @@ class Container {
 
   /** Descarta o cache de um escopo (ex.: ao finalizar uma request). */
   clearScope(scopeKey: string): void {
+    const bucket = this.scoped.get(scopeKey);
+    if (bucket) for (const instance of bucket.values()) this.dispose(instance);
     this.scoped.delete(scopeKey);
   }
 
   /** Remove todas as instâncias (útil em testes). */
   clear(): void {
+    for (const instance of this.singletons.values()) this.dispose(instance);
+    for (const bucket of this.scoped.values()) {
+      for (const instance of bucket.values()) this.dispose(instance);
+    }
     this.singletons.clear();
     this.scoped.clear();
   }
+}
+
+/**
+ * Instância `transient` que assina eventos ou agenda cron vaza: ninguém guarda
+ * a referência para cancelar depois. O aviso sai uma vez por classe.
+ */
+const _leakWarned = new WeakSet<object>();
+
+function warnIfLeaky(target: any, scope: DiScope, instance: any): void {
+  if (scope !== "transient" || _leakWarned.has(target)) return;
+  if (!hasListeners(instance) && !hasCronJobs(instance)) return;
+  _leakWarned.add(target);
+  logger.warn(
+    `[@mateusseiboth/ts-commons] ⚠️  ${target.name} é @Transient e registra @Listen/@Cron: cada resolução deixa ` +
+      `uma assinatura viva. Use @Singleton, ou @Scoped + container.clearScope(chave) ao fim do ` +
+      `escopo, ou chame disposeListeners()/stopCronJobs() na mão.`,
+  );
 }
 
 export const container = new Container();

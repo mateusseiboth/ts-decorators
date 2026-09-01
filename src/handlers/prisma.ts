@@ -34,7 +34,7 @@ export function setPrismaClient(client: PrismaClientLike): void {
 export function getPrismaClient(): PrismaClientLike {
   if (!_prismaClient) {
     throw new Error(
-      "[@mateusseiboth/ts-decorators] Prisma client não configurado. Chame setPrismaClient() no bootstrap da aplicação antes de usar Transactional/withTransaction.",
+      "[@mateusseiboth/ts-commons] Prisma client não configurado. Chame setPrismaClient() no bootstrap da aplicação antes de usar Transactional/withTransaction.",
     );
   }
   return _prismaClient;

@@ -3,11 +3,23 @@ import { Mutex as MutexLock } from "./src/concurrency/Mutex";
 import { Semaphore as SemaphoreLock } from "./src/concurrency/Semaphore";
 import { OPTIONS_FILTER } from "./src/constants/default";
 import { clearLegacyWarnings, isDecoratorContext, warnLegacy } from "./src/decorators/_proxy";
-import { Auditable, setAuditStorage, type AuditEntry } from "./src/decorators/auditable";
+import {
+  Auditable,
+  setAuditStorage,
+  type AuditEntry,
+  type AuditableOptions,
+} from "./src/decorators/auditable";
 import { AutoConvert } from "./src/decorators/autoConvert";
 import { CacheMethod, Cacheable, clearAllCache, getCacheStats } from "./src/decorators/cacheable";
 import { container } from "./src/decorators/container";
-import { Cron, cronMatches, startCronJobs, stopAllCronJobs } from "./src/decorators/cron";
+import {
+  Cron,
+  cronMatches,
+  hasCronJobs,
+  startCronJobs,
+  stopAllCronJobs,
+  stopCronJobs,
+} from "./src/decorators/cron";
 import { Emit } from "./src/decorators/emit";
 import { AllRouters, folderRouter } from "./src/decorators/folder-router";
 import {
@@ -40,11 +52,17 @@ import {
 import { Field, InitFields, getFieldTypeByKey, getFieldTypes } from "./src/decorators/initFields";
 import { Injectable } from "./src/decorators/Injectable";
 import { Scoped, Singleton, Transient, type DiScope } from "./src/decorators/lifecycle";
-import { Listen, initListeners } from "./src/decorators/listen";
+import { Listen, disposeListeners, hasListeners, initListeners } from "./src/decorators/listen";
 import { logDecorator } from "./src/decorators/log";
 import { MaskSensitive, applyMask, type MaskOptions } from "./src/decorators/maskSensitive";
+import { clearMetadataCache } from "./src/decorators/metadata";
 import { Mutex } from "./src/decorators/mutex";
-import { NestedModel, getNestedModel, getNestedModelMeta } from "./src/decorators/nestedModel";
+import {
+  NestedModel,
+  getNestedModel,
+  getNestedModelMeta,
+  getNestedModels,
+} from "./src/decorators/nestedModel";
 import { Processor, initProcessors, type ProcessorOptions } from "./src/decorators/processor";
 import { Queue, type QueueOptions } from "./src/decorators/queue";
 import {
@@ -71,6 +89,9 @@ import {
   Transactional,
   TransactionalClass,
   setTransactionalCompanyFn,
+  getSavepointPolicy,
+  setSavepointPolicy,
+  type SavepointPolicy,
 } from "./src/decorators/transactional";
 import { Validate, WithValidation, type IWithValidation } from "./src/decorators/validate";
 import { validateRouteFile } from "./src/decorators/validate-route-file";
@@ -78,12 +99,20 @@ import { EventBus, eventBus, type EventHandler } from "./src/events/eventBus";
 import { collectFieldMeta, collectFieldTypes } from "./src/functions/collectFieldsTypes";
 import { extractAndRemoveByKey } from "./src/functions/extractAndRemoveByKey";
 import { jwtDecode } from "./src/functions/jwt";
+import {
+  getLogLevel,
+  isLevelEnabled,
+  logger,
+  setLogLevel,
+  type LogLevel,
+} from "./src/functions/logger";
 import { makePrismaOptions, removeFromWhere } from "./src/functions/makePrismaOptions";
-import { filterObjectByModel, getModelKeys } from "./src/functions/object";
+import { filterObjectByModel, getModelKeys, stableStringify } from "./src/functions/object";
 import {
   addCompanyIdToTransaction,
   convertBigIntValues,
   executePrismaQuery,
+  invalidateCountCache,
   type IResponsePaginate,
 } from "./src/functions/sql";
 import { Audit } from "./src/handlers/Audit";
@@ -130,7 +159,11 @@ import {
   stopProcessors,
 } from "./src/queue/registry";
 import { SqliteQueueAdapter } from "./src/queue/SqliteQueueAdapter";
-import { AuditLogger, type AuditEntry as HttpAuditEntry } from "./src/storage/AuditLogger";
+import {
+  AuditLogger,
+  type AuditEntry as HttpAuditEntry,
+  type AuditLoggerOptions,
+} from "./src/storage/AuditLogger";
 
 export {
   All,
@@ -208,6 +241,8 @@ export {
   createWhereCondition,
   createWhereConditionQuery,
   cronMatches,
+  clearMetadataCache,
+  disposeListeners,
   defaultCompanyIdInjector,
   enqueue,
   // --- Infra (eventos / concorrência / filas) ---
@@ -224,18 +259,26 @@ export {
   getDAO,
   getFieldTypeByKey,
   getFieldTypes,
+  getLogLevel,
   getHandlerContext,
   getModel,
   getModelKeys,
   getNestedModel,
   getNestedModelMeta,
+  getNestedModels,
+  getSavepointPolicy,
   getOrderBy,
   getPaginate,
   getPrismaClient,
   getQueueAdapter,
   getRestRoutes,
   getWhere,
+  hasCronJobs,
+  hasListeners,
   initListeners,
+  invalidateCountCache,
+  isLevelEnabled,
+  logger,
   initProcessors,
   isDecoratorContext,
   jwtDecode,
@@ -251,9 +294,13 @@ export {
   setAuditStorage,
   setCompanyIdInjector,
   setHandlerContext,
+  setLogLevel,
+  setSavepointPolicy,
+  stableStringify,
   setPrismaClient,
   setTransactionalCompanyFn,
   startCronJobs,
+  stopCronJobs,
   startProcessors,
   stopAllCronJobs,
   stopProcessors,
@@ -266,6 +313,10 @@ export {
   withTransaction,
   type ApplyControllerRoutesConfig,
   type AuditEntry,
+  type AuditLoggerOptions,
+  type AuditableOptions,
+  type LogLevel,
+  type SavepointPolicy,
   type CompanyIdInjector,
   type DiScope,
   type EventHandler,

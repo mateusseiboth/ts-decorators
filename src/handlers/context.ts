@@ -27,7 +27,7 @@ type ContextRequirer = (message?: string) => HandlerContext;
 
 let _getContext: ContextGetter = () => undefined;
 let _requireContext: ContextRequirer = (
-  msg = "[@mateusseiboth/ts-decorators] Contexto não disponível. Chame setHandlerContext() no bootstrap.",
+  msg = "[@mateusseiboth/ts-commons] Contexto não disponível. Chame setHandlerContext() no bootstrap.",
 ) => {
   throw new Error(msg);
 };
@@ -42,7 +42,7 @@ export function setHandlerContext(getCtx: ContextGetter, requireCtx?: ContextReq
   if (requireCtx) {
     _requireContext = requireCtx;
   } else {
-    _requireContext = (msg = "[@mateusseiboth/ts-decorators] Contexto não disponível.") => {
+    _requireContext = (msg = "[@mateusseiboth/ts-commons] Contexto não disponível.") => {
       const ctx = getCtx();
       if (!ctx) throw new Error(msg);
       return ctx;

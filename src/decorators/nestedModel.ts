@@ -1,5 +1,7 @@
 import "reflect-metadata";
+import { logger } from "../functions/logger";
 import { isDecoratorContext, warnLegacy } from "./_proxy";
+import { bumpMetadataVersion, createMetadataCache } from "./metadata";
 
 /** Metadados de um campo aninhado (relação para outro Model). */
 export interface NestedModelMeta {
@@ -18,6 +20,12 @@ export interface NestedModelMeta {
 }
 
 const NESTED_MODELS = new WeakMap<object, Record<string, NestedModelMeta>>();
+
+/**
+ * Relações já achatadas por alvo. Sem isso, cada campo convertido pelo
+ * @AutoConvert refazia a caminhada na cadeia de protótipos.
+ */
+const NESTED_CACHE = createMetadataCache<object, Readonly<Record<string, NestedModelMeta>>>();
 
 /**
  * Normaliza uma entrada do registro para o formato {@link NestedModelMeta}.
@@ -53,6 +61,7 @@ export function registerNestedModelLegacy(
     NESTED_MODELS.set(target, nested);
   }
   nested[key] = { model, isArray, autoConvert };
+  bumpMetadataVersion();
 }
 
 /**
@@ -67,6 +76,7 @@ export function registerNestedModelMeta(
 ): void {
   if (!meta.__nested) meta.__nested = {};
   meta.__nested[key] = { model, isArray, autoConvert };
+  bumpMetadataVersion();
 }
 
 /**
@@ -77,7 +87,7 @@ export function registerNestedModelMeta(
  * Para listas/arrays, prefira `@Field([OutroModel])`.
  */
 export function NestedModel(modelClass: Function) {
-  console.log(`[@mateusseiboth/ts-commons] Registering nested model:`, modelClass.name);
+  logger.debug(`[@mateusseiboth/ts-commons] Registering nested model:`, modelClass.name);
   return function (...args: any[]): any {
     // New TC39 field decorator: (value, context)
     if (args.length === 2 && isDecoratorContext(args[1]) && args[1].kind === "field") {
@@ -104,26 +114,52 @@ export function getNestedModel(target: any, key: string): any | undefined {
 }
 
 /**
- * Retorna os metadados completos ({model, isArray}) do campo aninhado `key`,
+ * Retorna os metadados completos ({model, isArray, autoConvert}) do campo aninhado `key`,
  * ou `undefined` se o campo não for uma relação.
  */
-export function getNestedModelMeta(target: any, key: string): NestedModelMeta | undefined {
-  // Legacy: walk prototype chain
-  let proto = target;
-  while (proto && proto !== Object.prototype) {
-    const nested = NESTED_MODELS.get(proto);
-    if (nested && nested[key]) return normalizeNestedEntry(nested[key]);
-    proto = Object.getPrototypeOf(proto);
-  }
+/**
+ * Achata todas as relações visíveis a partir de `target` (próprias + herdadas).
+ * O mais PRÓXIMO na cadeia vence, mesma precedência da busca original.
+ */
+function resolveNestedModels(target: any): Readonly<Record<string, NestedModelMeta>> {
+  const result: Record<string, NestedModelMeta> = {};
 
-  // New TC39: check Symbol.metadata
+  // New TC39 primeiro: o legacy (mais próximo na cadeia) sobrescreve depois.
   const ctor = typeof target === "function" ? target : target?.constructor;
   if (ctor && typeof Symbol !== "undefined" && Symbol.metadata) {
     const meta = ctor[Symbol.metadata] as Record<string, any> | undefined;
-    if (meta?.__nested && meta.__nested[key]) {
-      return normalizeNestedEntry(meta.__nested[key]);
+    for (const [key, entry] of Object.entries(meta?.__nested ?? {})) {
+      const normalized = normalizeNestedEntry(entry);
+      if (normalized) result[key] = normalized;
     }
   }
 
-  return undefined;
+  // Legacy: da superclasse para a subclasse, para o mais próximo prevalecer.
+  const chain: object[] = [];
+  let proto = target;
+  while (proto && proto !== Object.prototype) {
+    chain.push(proto);
+    proto = Object.getPrototypeOf(proto);
+  }
+  for (const link of chain.reverse()) {
+    for (const [key, entry] of Object.entries(NESTED_MODELS.get(link) ?? {})) {
+      const normalized = normalizeNestedEntry(entry);
+      if (normalized) result[key] = normalized;
+    }
+  }
+
+  return Object.freeze(result);
 }
+
+/** Todas as relações de um model, achatadas e memorizadas. Somente leitura. */
+export function getNestedModels(target: any): Readonly<Record<string, NestedModelMeta>> {
+  if (!target || (typeof target !== "object" && typeof target !== "function")) return EMPTY_NESTED;
+  return NESTED_CACHE.get(target as object, resolveNestedModels);
+}
+
+export function getNestedModelMeta(target: any, key: string): NestedModelMeta | undefined {
+  const nested = getNestedModels(target);
+  return Object.hasOwn(nested, key) ? nested[key] : undefined;
+}
+
+const EMPTY_NESTED: Readonly<Record<string, NestedModelMeta>> = Object.freeze({});

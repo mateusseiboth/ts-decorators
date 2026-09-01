@@ -1,8 +1,17 @@
 import "reflect-metadata";
+import { logger } from "../functions/logger";
 import { isDecoratorContext, warnLegacy } from "./_proxy";
+import { bumpMetadataVersion, createMetadataCache } from "./metadata";
 import { registerNestedModelLegacy, registerNestedModelMeta } from "./nestedModel";
 
 const CLASS_FIELDS = new WeakMap<object, Record<string, string>>();
+
+/**
+ * Mapa de tipos já achatado por alvo (prototype/instância). Resolver percorre a
+ * cadeia de protótipos + `Symbol.metadata`; sem cache isso acontecia a cada
+ * requisição e a cada campo convertido.
+ */
+const FIELD_TYPES_CACHE = createMetadataCache<object, Readonly<Record<string, string>>>();
 
 /** Tipo aceito pelo @Field. */
 export type FieldType = string | Function | [Function];
@@ -61,6 +70,7 @@ export function Field(type?: FieldType) {
       if (!meta.__fields) meta.__fields = {};
       meta.__fields[fieldName] = typeString || "any";
       if (nested) registerNestedModelMeta(meta, fieldName, nested.model, nested.isArray, true);
+      bumpMetadataVersion();
       return;
     }
 
@@ -81,6 +91,7 @@ export function Field(type?: FieldType) {
       const reflectedType = Reflect.getMetadata("design:type", target, propertyKey);
       fields[propertyKey as string] = reflectedType?.name.toLowerCase() || "any";
     }
+    bumpMetadataVersion();
   };
 }
 
@@ -108,12 +119,13 @@ export function InitFields<T extends { new (...args: any[]): {} }>(
     warnLegacy("InitFields");
   }
   const proto = constructor.prototype;
-  console.log("[@mateusseiboth/ts-commons] Initializing fields for", constructor.name);
+  logger.debug("[@mateusseiboth/ts-commons] Initializing fields for", constructor.name);
   if (!CLASS_FIELDS.has(proto)) CLASS_FIELDS.set(proto, {});
+  bumpMetadataVersion();
   return constructor;
 }
 
-export function getFieldTypes(target: any): Record<string, string> {
+function resolveFieldTypes(target: any): Readonly<Record<string, string>> {
   const result: Record<string, string> = {};
 
   // Legacy: walk prototype chain in WeakMap
@@ -133,26 +145,25 @@ export function getFieldTypes(target: any): Record<string, string> {
     }
   }
 
-  return result;
+  // Congelado de propósito: o mapa é COMPARTILHADO entre todas as leituras.
+  return Object.freeze(result);
+}
+
+/**
+ * Tipos de campo achatados do model, incluindo os herdados.
+ *
+ * O resultado é memorizado por alvo e CONGELADO — trate como somente leitura.
+ */
+export function getFieldTypes(target: any): Record<string, string> {
+  if (!target || (typeof target !== "object" && typeof target !== "function")) return {};
+  return FIELD_TYPES_CACHE.get(target as object, resolveFieldTypes);
 }
 
 export function getFieldTypeByKey(instance: any, key: string): string | undefined {
-  // Legacy: walk prototype chain
-  let proto = Object.getPrototypeOf(instance);
-  while (proto && proto !== Object.prototype) {
-    const fields = CLASS_FIELDS.get(proto);
-    if (fields && key in fields) return fields[key];
-    proto = Object.getPrototypeOf(proto);
-  }
-
-  // New TC39: check Symbol.metadata
-  const ctor = instance?.constructor;
-  if (ctor && typeof Symbol !== "undefined" && Symbol.metadata) {
-    const meta = ctor[Symbol.metadata] as Record<string, any> | undefined;
-    if (meta?.__fields && key in meta.__fields) {
-      return meta.__fields[key];
-    }
-  }
-
-  return undefined;
+  const proto = instance != null ? Object.getPrototypeOf(instance) : null;
+  if (!proto) return undefined;
+  const types = getFieldTypes(proto);
+  return Object.hasOwn(types, key) ? types[key] : undefined;
 }
+
+export { clearMetadataCache } from "./metadata";
