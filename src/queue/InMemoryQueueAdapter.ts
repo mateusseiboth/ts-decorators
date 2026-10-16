@@ -5,7 +5,12 @@
  * Implementa a interface comum {@link QueueAdapter}.
  */
 
-import type { QueueAdapter, QueueJob } from "./adapter";
+import {
+  emptyQueueStatusCounts,
+  type QueueAdapter,
+  type QueueJob,
+  type QueueStatusCounts,
+} from "./adapter";
 
 export class InMemoryQueueAdapter<T = any> implements QueueAdapter<T> {
   private readonly store = new Map<string, QueueJob<T>>();
@@ -35,7 +40,20 @@ export class InMemoryQueueAdapter<T = any> implements QueueAdapter<T> {
     return { ...updated };
   }
 
+  claim(id: string, lockedAt: number): boolean {
+    const current = this.store.get(id);
+    if (current?.status !== "pending") return false;
+    this.store.set(id, { ...current, status: "processing", lockedAt });
+    return true;
+  }
+
   delete(id: string): void {
     this.store.delete(id);
+  }
+
+  countByStatus(): QueueStatusCounts {
+    const counts = emptyQueueStatusCounts();
+    for (const job of this.store.values()) counts[job.status] += 1;
+    return counts;
   }
 }

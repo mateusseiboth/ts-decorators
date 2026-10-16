@@ -1,57 +1,35 @@
 import fs from "fs/promises";
 import path from "path";
 
-import type { Express, RequestHandler } from "express";
 import { Router } from "express";
+import type { Express, RequestHandler } from "express";
 
+import { logger } from "../functions/logger";
+import {
+  endpointsOf,
+  formatRoutesTable,
+  recordRoute,
+  type RegisteredRoute,
+} from "./route-registry";
 import { validateRouteFile } from "./validate-route-file";
 
-export const AllRouters: Record<string, any> = {};
+/** Rota montada pelo `folderRouter`, como o `AllRouters` a expõe. */
+export interface MountedRouter extends RegisteredRoute {
+  /** Arquivo `index.ts` que declarou a rota. */
+  file: string;
+  globalMiddlewares: number;
+  routeMiddlewares: number;
+}
+
+/**
+ * Toda rota montada pelo `folderRouter`, por caminho de montagem. O projeto lê daqui para
+ * listar o que subiu (o `getRegisteredRoutes` traz o mesmo, em ordem de montagem).
+ */
+export const AllRouters: Record<string, MountedRouter> = {};
 
 type FolderRouterOptions = {
   middlewares?: RequestHandler[];
   prefix?: string;
-};
-
-const log = {
-  start(baseFolder: string, prefix?: string) {
-    console.log(`
-┌──────────────────────────────────────────────────────────────┐
-│ 🚀 Route Scanner                                             │
-├──────────────────────────────────────────────────────────────┤
-│ Base   │ ${baseFolder}
-│ Prefix │ ${prefix || "/"}
-└──────────────────────────────────────────────────────────────┘`);
-  },
-
-  file(file: string) {
-    console.log(`🔍 ${file}`);
-  },
-
-  skip(reason: string) {
-    console.log(`   └─ ⏭️  ${reason}`);
-  },
-
-  mounted({
-    path,
-    file,
-    globalMiddlewares,
-    routeMiddlewares,
-  }: {
-    path: string;
-    file: string;
-    globalMiddlewares: number;
-    routeMiddlewares: number;
-  }) {
-    console.log(`   ├─ ✅ Mounted
-   │  URL         : ${path}
-   │  File        : ${file}
-   │  Middlewares : ${globalMiddlewares} global + ${routeMiddlewares} local`);
-  },
-
-  finish() {
-    console.log("\n✨ Route scan completed.\n");
-  },
 };
 
 export async function folderRouter(
@@ -60,8 +38,7 @@ export async function folderRouter(
   options?: FolderRouterOptions,
 ) {
   const globalMiddlewares = options?.middlewares || [];
-
-  log.start(baseFolder, options?.prefix);
+  const montadas: RegisteredRoute[] = [];
 
   async function scan(currentDir: string) {
     const entries = await fs.readdir(currentDir, {
@@ -73,60 +50,61 @@ export async function folderRouter(
 
       if (entry.isDirectory()) {
         await scan(fullPath);
+
         continue;
       }
 
-      log.file(fullPath);
-
       const isIndexFile = entry.name === "index.ts" || entry.name === "index.js";
-
+      logger.debug(`Found file: ${fullPath}, isIndexFile: ${isIndexFile}`);
       if (!isIndexFile) {
-        log.skip("Not an index file");
         continue;
       }
 
       const isValid = await validateRouteFile(fullPath);
-
+      logger.debug(`Validation result for ${fullPath}: ${isValid}`);
       if (!isValid) {
-        log.skip("No registry() export found");
         continue;
       }
 
       const imported = await import(fullPath);
 
       if (typeof imported.registry !== "function") {
-        log.skip("registry is not a function");
         continue;
       }
-
+      logger.debug(`Registering route from file: ${fullPath}`);
       const relativeDir = path.relative(baseFolder, currentDir);
 
+      logger.debug("Found prefix:", options?.prefix);
       const routePath =
-        (options?.prefix ?? "") + "/" + relativeDir.split(path.sep).filter(Boolean).join("/");
-
+        (options?.prefix ? options.prefix : "") +
+        "/" +
+        relativeDir.split(path.sep).filter(Boolean).join("/");
+      logger.debug(`Computed route path for ${fullPath}: ${routePath}`);
       const router = Router();
 
       const routeMiddlewares = imported.middlewares || [];
-
+      logger.debug(
+        `Applying middlewares for ${routePath}: ${routeMiddlewares.length} middlewares found`,
+      );
       app.use(routePath, ...globalMiddlewares, ...routeMiddlewares, router);
 
       await imported.registry(router);
+
+      const rota = { path: routePath, endpoints: endpointsOf(router) };
+      recordRoute(rota);
       AllRouters[routePath] = {
-        path: routePath,
+        ...rota,
         file: fullPath,
         globalMiddlewares: globalMiddlewares.length,
         routeMiddlewares: routeMiddlewares.length,
       };
-      log.mounted({
-        path: routePath,
-        file: fullPath,
-        globalMiddlewares: globalMiddlewares.length,
-        routeMiddlewares: routeMiddlewares.length,
-      });
+      montadas.push(rota);
+      logger.debug(`[ROUTE] ${routePath} (${rota.endpoints.length} endpoints)`);
     }
   }
 
   await scan(baseFolder);
 
-  log.finish();
+  // Uma tabela por pasta varrida (web, api...), no lugar de uma linha por rota.
+  for (const linha of formatRoutesTable(montadas)) logger.info(linha);
 }

@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
 
 import { setHandlerContext } from "../src/handlers/context";
+import { getColumns } from "../src/middlwares/getColumns";
 import { getOrderBy } from "../src/middlwares/getOrderBy";
 import { getPaginate } from "../src/middlwares/getPaginate";
 import { getWhere } from "../src/middlwares/getWhere";
@@ -54,6 +55,15 @@ describe("middlewares espelham no contexto do request", () => {
 
     expect(res.locals.paginate).toEqual({ skip: 20, take: 20, page: 2 });
     expect(ctx.paginate).toBe(res.locals.paginate);
+  });
+
+  test("getColumns escreve nos dois", () => {
+    const ctx = comContexto();
+    const res = mockRes();
+    getColumns(mockReq({ query: { fields: "name" } }), res, mockNext(), SimpleModel);
+
+    expect(res.locals.columns).toEqual({ id: true, name: true });
+    expect(ctx.columns).toBe(res.locals.columns);
   });
 
   test("getPaginate sem o header não toca em nada", () => {

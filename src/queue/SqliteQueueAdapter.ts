@@ -1,7 +1,7 @@
 /**
  * SqliteQueueAdapter — adapter de fila persistente sobre bun:sqlite.
  *
- * Segue o mesmo padrão (WAL + busy_timeout) usado nas filas de relatório.
+ * SQLite em WAL com busy_timeout, para leitura e escrita concorrentes.
  * O payload é serializado como JSON. Implementa a interface comum {@link QueueAdapter}.
  *
  * Exemplo:
@@ -12,7 +12,12 @@
 
 import { Database } from "bun:sqlite";
 
-import type { QueueAdapter, QueueJob } from "./adapter";
+import {
+  emptyQueueStatusCounts,
+  type QueueAdapter,
+  type QueueJob,
+  type QueueStatusCounts,
+} from "./adapter";
 
 export class SqliteQueueAdapter<T = any> implements QueueAdapter<T> {
   private readonly db: Database;
@@ -29,9 +34,18 @@ export class SqliteQueueAdapter<T = any> implements QueueAdapter<T> {
         payload TEXT NOT NULL,
         status TEXT NOT NULL,
         createdAt INTEGER NOT NULL,
-        error TEXT
+        error TEXT,
+        lockedAt INTEGER
       )
     `);
+    this.addLockedAtColumn();
+  }
+
+  /** Banco criado por versão anterior não tem a coluna: `CREATE TABLE IF NOT EXISTS` não a acrescenta. */
+  private addLockedAtColumn(): void {
+    const colunas = this.db.query(`PRAGMA table_info(${this.table})`).all() as { name: string }[];
+    if (colunas.some((coluna) => coluna.name === "lockedAt")) return;
+    this.db.exec(`ALTER TABLE ${this.table} ADD COLUMN lockedAt INTEGER`);
   }
 
   findMany(filter?: Partial<QueueJob<T>>): Array<QueueJob<T>> {
@@ -56,8 +70,15 @@ export class SqliteQueueAdapter<T = any> implements QueueAdapter<T> {
 
   create(job: QueueJob<T>): QueueJob<T> {
     this.db.run(
-      `INSERT INTO ${this.table} (id, payload, status, createdAt, error) VALUES (?, ?, ?, ?, ?)`,
-      [job.id, JSON.stringify(job.payload), job.status, job.createdAt, job.error ?? null],
+      `INSERT INTO ${this.table} (id, payload, status, createdAt, error, lockedAt) VALUES (?, ?, ?, ?, ?, ?)`,
+      [
+        job.id,
+        JSON.stringify(job.payload),
+        job.status,
+        job.createdAt,
+        job.error ?? null,
+        job.lockedAt ?? null,
+      ],
     );
     return { ...job };
   }
@@ -66,17 +87,56 @@ export class SqliteQueueAdapter<T = any> implements QueueAdapter<T> {
     const current = this.findUnique(id);
     if (!current) return null;
     const updated: QueueJob<T> = { ...current, ...patch };
-    this.db.run(`UPDATE ${this.table} SET payload = ?, status = ?, error = ? WHERE id = ?`, [
-      JSON.stringify(updated.payload),
-      updated.status,
-      updated.error ?? null,
-      id,
-    ]);
+    this.db.run(
+      `UPDATE ${this.table} SET payload = ?, status = ?, error = ?, lockedAt = ? WHERE id = ?`,
+      [
+        JSON.stringify(updated.payload),
+        updated.status,
+        updated.error ?? null,
+        updated.lockedAt ?? null,
+        id,
+      ],
+    );
     return updated;
+  }
+
+  /** O `WHERE status = 'pending'` faz a reserva ser de um processo só: quem chega depois não altera linha nenhuma. */
+  claim(id: string, lockedAt: number): boolean {
+    const { changes } = this.db.run(
+      `UPDATE ${this.table} SET status = 'processing', lockedAt = ? WHERE id = ? AND status = 'pending'`,
+      [lockedAt, id],
+    );
+    return changes === 1;
   }
 
   delete(id: string): void {
     this.db.run(`DELETE FROM ${this.table} WHERE id = ?`, [id]);
+  }
+
+  findRecent(filter: Partial<QueueJob<T>>, limit: number): Array<QueueJob<T>> {
+    const status = filter.status;
+    const rows = (
+      status
+        ? this.db
+            .query(`SELECT * FROM ${this.table} WHERE status = ? ORDER BY createdAt DESC LIMIT ?`)
+            .all(status, limit)
+        : this.db.query(`SELECT * FROM ${this.table} ORDER BY createdAt DESC LIMIT ?`).all(limit)
+    ) as any[];
+    return rows.map((row) => this.parse(row));
+  }
+
+  deleteByStatus(status: QueueJob["status"]): number {
+    return this.db.run(`DELETE FROM ${this.table} WHERE status = ?`, [status]).changes;
+  }
+
+  /** `GROUP BY status`: conta sem ler nem desserializar os payloads. */
+  countByStatus(): QueueStatusCounts {
+    const rows = this.db
+      .query(`SELECT status, COUNT(*) AS total FROM ${this.table} GROUP BY status`)
+      .all() as Array<{ status: QueueJob["status"]; total: number }>;
+    const counts = emptyQueueStatusCounts();
+    for (const row of rows) counts[row.status] = Number(row.total);
+    return counts;
   }
 
   close(): void {
@@ -90,6 +150,7 @@ export class SqliteQueueAdapter<T = any> implements QueueAdapter<T> {
       status: row.status,
       createdAt: row.createdAt,
       error: row.error ?? undefined,
+      lockedAt: row.lockedAt ?? undefined,
     };
   }
 }

@@ -3,7 +3,7 @@ import type { NextFunction, Request, Response } from "express";
 import { addCompanyIdToTransaction } from "../functions/sql";
 import type { CompanyIdInjector } from "./companyId";
 import { requireHandlerContext } from "./context";
-import { getPrismaClient } from "./prisma";
+import { getPrismaClient, runInTransaction } from "./prisma";
 
 export function Transactional(options?: {
   timeout?: number;
@@ -16,10 +16,11 @@ export function Transactional(options?: {
   return function (handler: (req: Request, res: Response, next: NextFunction) => any) {
     return async function (req: Request, res: Response, next: NextFunction) {
       const prisma = getPrismaClient();
-      return await prisma.$transaction(
+      return await runInTransaction(
+        prisma,
         async (transaction: any) => {
           const ctx = requireHandlerContext(
-            "[@mateusseiboth/ts-commons] Context not found. Make sure withContext middleware is applied before the route.",
+            "[@mateusseiboth/ts-decorators] Context not found. Make sure withContext middleware is applied before the route.",
           );
           ctx.transaction = transaction;
           await addCompanyIdToTransaction(

@@ -28,7 +28,7 @@ export function warnLegacy(name: string): void {
   if (_legacyWarnings.has(name)) return;
   _legacyWarnings.add(name);
   logger.warn(
-    `[@mateusseiboth/ts-commons] ⚠️  Decorator @${name} está sendo usado no padrão LEGACY (experimentalDecorators). ` +
+    `[@mateusseiboth/ts-decorators] ⚠️  Decorator @${name} está sendo usado no padrão LEGACY (experimentalDecorators). ` +
       `Migre para o novo padrão TC39 Stage 3 decorators.`,
   );
 }

@@ -1,7 +1,7 @@
 import type { Response } from "express";
 
 export const makePrismaOptions = (res: Response, _filterExercicio = false) => {
-  const { where, orderBy, paginate } = res.locals;
+  const { where, orderBy, paginate, columns } = res.locals;
   // Merge existing AND conditions with the new ones
   const mergedWhere = {
     ...where,
@@ -11,6 +11,9 @@ export const makePrismaOptions = (res: Response, _filterExercicio = false) => {
   const optionsTpReturn = {
     where: mergedWhere,
     orderBy: orderBy ? [...orderBy] : undefined,
+    // Projeção do getColumns (?fields=). Só entra quando pedida: o executePrismaQuery
+    // consome e remove a chave antes de falar com o Prisma.
+    ...(columns ? { columns } : {}),
     ...paginate,
   };
 

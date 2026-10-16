@@ -1,3 +1,4 @@
+import { logger } from "../functions/logger";
 import { isDecoratorContext, warnLegacy } from "./_proxy";
 
 export function logDecorator<T extends new (...args: any[]) => {}>(
@@ -17,7 +18,7 @@ export function logDecorator<T extends new (...args: any[]) => {}>(
         timeZone: "America/Campo_Grande",
       });
 
-      console.log(`[${timestamp} - ${className}] ${message}`);
+      logger.info(`[${timestamp} - ${className}] ${message}`);
     },
     writable: true,
     enumerable: false,

@@ -51,7 +51,7 @@ export function Audit(options?: { action?: string }) {
           requestId: ctx?.requestId,
         });
       } catch (err) {
-        logger.error("[@mateusseiboth/ts-commons][Audit] Failed to log:", err);
+        logger.error("[@mateusseiboth/ts-decorators][Audit] Failed to log:", err);
       }
 
       return result;

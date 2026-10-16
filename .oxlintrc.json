@@ -1,6 +1,7 @@
 {
   "$schema": "./node_modules/oxlint/configuration_schema.json",
   "plugins": ["typescript", "oxc", "promise"],
+  "jsPlugins": [{ "name": "ts-decorators", "specifier": "./src/oxlint/no-enum.mjs" }],
   "categories": {
     "correctness": "error"
   },
@@ -32,7 +33,8 @@
     "no-debugger": "error",
     "no-var": "error",
     "prefer-const": "warn",
-    "promise/no-callback-in-promise": "off"
+    "promise/no-callback-in-promise": "off",
+    "ts-decorators/no-enum": "error"
   },
   "overrides": [
     {

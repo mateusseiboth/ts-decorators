@@ -1,6 +1,7 @@
 import { Router } from "express";
 import type { RequestHandler } from "express";
 
+import { getColumns } from "../middlwares/getColumns";
 import { getOrderBy } from "../middlwares/getOrderBy";
 import { getPaginate } from "../middlwares/getPaginate";
 import { getWhere } from "../middlwares/getWhere";
@@ -62,6 +63,8 @@ export class RouteBuilder {
       (req, res, next) => getOrderBy<T>(req, res, next, model),
 
       (req, res, next) => getWhere<T>(req, res, next, model),
+
+      (req, res, next) => getColumns<T>(req, res, next, model),
 
       getPaginate,
     ]);

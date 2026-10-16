@@ -99,15 +99,9 @@ describe("getWhere - filtros aninhados (nested)", () => {
       expect(where).toEqual({ OR: [{ profile: { followers: { gt: 10 } } }] });
     });
 
-    test("range numérico no campo aninhado é expandido em OR", () => {
+    test("range numérico no campo aninhado vira um intervalo só", () => {
       const { where } = whereFor(UserModel, { "profile.followers": "1-3" });
-      expect(where).toEqual({
-        OR: [
-          { profile: { followers: { equals: 1 } } },
-          { profile: { followers: { equals: 2 } } },
-          { profile: { followers: { equals: 3 } } },
-        ],
-      });
+      expect(where).toEqual({ OR: [{ profile: { followers: { gte: 1, lte: 3 } } }] });
     });
   });
 

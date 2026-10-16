@@ -2,7 +2,7 @@
  * @RateLimit - Decorator para rate limiting em Controllers.
  *
  * Limita a quantidade de requisições por IP + entidade em uma janela de tempo.
- * Usa sliding window counter em memória (sem dependências externas).
+ * Usa contador de janela fixa em memória (sem dependências externas).
  *
  * Uso em classe (aplica a todos os métodos):
  *   @RateLimit({ maxRequests: 100, windowMs: 60_000 })

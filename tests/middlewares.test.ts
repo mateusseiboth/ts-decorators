@@ -9,7 +9,7 @@ import {
   getWhere,
 } from "../src/middlwares/getWhere";
 import { mockNext, mockReq, mockRes } from "./_helpers";
-import { SimpleModel } from "./_models";
+import { CityFieldModel, SimpleModel, UserModel } from "./_models";
 
 describe("Middlewares", () => {
   describe("getPaginate", () => {
@@ -62,6 +62,20 @@ describe("Middlewares", () => {
       const res = mockRes();
       const next = mockNext();
       getOrderBy(req, res, next, SimpleModel);
+      expect(res.locals.orderBy).toEqual([]);
+    });
+
+    test("campo de relação to-one vira o objeto aninhado do Prisma 7", () => {
+      const req = mockReq({ query: { orderBy: "state.country.name", orderMethod: "desc" } });
+      const res = mockRes();
+      getOrderBy(req, res, mockNext(), CityFieldModel);
+      expect(res.locals.orderBy).toEqual([{ state: { country: { name: "desc" } } }]);
+    });
+
+    test("campo de relação to-many é ignorado: não há UMA linha para ordenar", () => {
+      const req = mockReq({ query: { orderBy: "posts.title", orderMethod: "asc" } });
+      const res = mockRes();
+      getOrderBy(req, res, mockNext(), UserModel);
       expect(res.locals.orderBy).toEqual([]);
     });
   });
@@ -148,10 +162,26 @@ describe("Middlewares", () => {
       expect(result.OR[0].birthDate).toHaveProperty("gte");
     });
 
+    test("campos Temporal de data também geram lte/gte", () => {
+      const zoned = createWhereConditionQuery("2024-01-15", "inicio", { inicio: "zoneddatetime" });
+      expect(zoned.OR[0].inicio).toHaveProperty("lte");
+      expect(zoned.OR[0].inicio).toHaveProperty("gte");
+
+      const plain = createWhereConditionQuery("2024-01-15", "competencia", {
+        competencia: "plaindate",
+      });
+      expect(plain.OR[0].competencia).toHaveProperty("gte");
+    });
+
+    test("duration não é tratado como data", () => {
+      const result = createWhereConditionQuery("PT1H", "duracao", { duracao: "duration" });
+      expect(result.OR[0].duracao).toEqual({ equals: "PT1H" });
+    });
+
     test("range numérico com -", () => {
       const result = createWhereConditionQuery("1-5", "age", { age: "number" });
-      // expandRanges deve gerar 5 entradas (1,2,3,4,5)
-      expect(result.OR.length).toBe(5);
+      // Uma condição só: expandir valor a valor deixava `1-100000000` derrubar o processo.
+      expect(result.OR).toEqual([{ age: { gte: 1, lte: 5 } }]);
     });
   });
 
@@ -176,6 +206,32 @@ describe("Middlewares", () => {
       const result = createWhereCondition(obj, "age", { age: "number" });
       expect(result).toEqual(obj);
     });
+
+    test("notNull vira not null, sem olhar o valor nem o tipo do campo", () => {
+      const esperado = { OR: [{ data_baixa: { not: null } }], NOT: [] };
+      expect(createWhereCondition("notNull:null", "data_baixa", { data_baixa: "Date" })).toEqual(
+        esperado,
+      );
+      expect(createWhereCondition("notNull:", "data_baixa", { data_baixa: "Date" })).toEqual(
+        esperado,
+      );
+      expect(createWhereCondition("notNull:true", "data_baixa", { data_baixa: "string" })).toEqual(
+        esperado,
+      );
+    });
+
+    test("isNull vira null, sem olhar o valor nem o tipo do campo", () => {
+      const esperado = { OR: [{ data_baixa: null }], NOT: [] };
+      expect(createWhereCondition("isNull:null", "data_baixa", { data_baixa: "Date" })).toEqual(
+        esperado,
+      );
+      expect(createWhereCondition("isNull:", "data_baixa", { data_baixa: "Date" })).toEqual(
+        esperado,
+      );
+      expect(
+        createWhereCondition("isNull:2026-01-15", "data_baixa", { data_baixa: "Date" }),
+      ).toEqual(esperado);
+    });
   });
 
   describe("buildWhereFromQuery", () => {
@@ -188,6 +244,13 @@ describe("Middlewares", () => {
     test("suporta customFields", () => {
       const where = buildWhereFromQuery({}, SimpleModel, { active: true });
       expect(where.AND).toBeDefined();
+    });
+
+    test("notNull e isNull filtram pela nulidade do campo", () => {
+      expect(buildWhereFromQuery({ name: "notNull:null" }, SimpleModel)).toEqual({
+        name: { not: null },
+      });
+      expect(buildWhereFromQuery({ name: "isNull:null" }, SimpleModel)).toEqual({ name: null });
     });
 
     test("query vazia retorna where vazio", () => {

@@ -4,7 +4,7 @@
  *
  *  - @Singleton(): uma única instância por processo (default do container).
  *  - @Scoped(keyFn?): uma instância por chave de escopo. Sem `keyFn`, usa o
- *    resolver global (`container.setScopeResolver`) — por exemplo, o requestId.
+ *    resolver global (`container.setScopeResolver`), por exemplo o requestId.
  *  - @Transient(): uma instância nova a cada `container.get()`.
  *
  * Funcionam tanto no padrão legacy (experimentalDecorators) quanto TC39 Stage 3,

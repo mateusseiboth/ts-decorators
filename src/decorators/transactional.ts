@@ -30,19 +30,21 @@ import type { NextFunction, Request, Response } from "express";
 
 import { logger } from "../functions/logger";
 import type { CompanyIdInjector } from "../handlers/companyId";
+import { runInTransaction, type PrismaClientLike } from "../handlers/prisma";
+import { isPrisma7Tx, isPrisma8Tx, runStatement } from "../prisma8/client";
+import { wrapMetodosDaClasse } from "./_method";
 import { isDecoratorContext, warnLegacy } from "./_proxy";
 
-type PrismaLike = {
-  $transaction: (fn: (tx: any) => Promise<any>, options?: any) => Promise<any>;
-};
+type PrismaLike = PrismaClientLike;
 
-type AddCompanyFn = (tx: any, entity: string) => Promise<void>;
+/** O retorno é ignorado: cabe o `addCompanyIdToTransaction`, que devolve o resultado do comando. */
+type AddCompanyFn = (tx: any, entity: string) => unknown;
 
-// Configuração global deste middleware. Opt-in: sem chamar `setTransactionalCompanyFn`
-// nada é injetado na transação.
+// Configuração global deste middleware. Opt-in: sem chamar `setTransactionalCompanyFn` (ou
+// passar `companyIdInjector` na rota) nada é injetado na transação. `null` desliga de novo.
 let _addCompanyFn: AddCompanyFn | null = null;
 
-export function setTransactionalCompanyFn(fn: AddCompanyFn) {
+export function setTransactionalCompanyFn(fn: AddCompanyFn | null) {
   _addCompanyFn = fn;
 }
 
@@ -58,10 +60,9 @@ export function setTransactionalCompanyFn(fn: AddCompanyFn) {
  * - `"never"`: nunca — a transação inteira é a unidade de rollback.
  *
  * `SAVEPOINT` + `RELEASE` são DUAS idas ao banco por escrita. Em `"auto"`, a
- * rota comum (uma escrita por request) deixa de pagar as duas.
- *
- * Escolha `"always"` se o seu código captura o erro de uma escrita e SEGUE
- * usando a mesma transação — sem savepoint o Postgres já abortou tudo.
+ * rota comum (uma escrita por request) deixa de pagar as duas — mas isso MUDA
+ * comportamento, então é opt-in: `"auto"` quebra quem captura o erro de uma
+ * escrita e SEGUE usando a mesma transação (sem savepoint o Postgres já abortou).
  */
 export type SavepointPolicy = "auto" | "always" | "never";
 
@@ -94,71 +95,79 @@ const savepointDecision: Record<SavepointPolicy, (tx: object) => boolean> = {
  */
 export function Transactional(
   prisma: PrismaLike,
-  options?: { timeout?: number; maxWait?: number; companyIdInjector?: CompanyIdInjector },
+  options?: {
+    timeout?: number;
+    maxWait?: number;
+    /** Estratégia de tenant só desta rota; vence o `setTransactionalCompanyFn`. */
+    companyIdInjector?: CompanyIdInjector;
+  },
 ) {
   return function (req: Request, res: Response, next: NextFunction) {
-    prisma
-      .$transaction(
-        async (tx) => {
-          const addCompany = options?.companyIdInjector ?? _addCompanyFn;
-          if (addCompany && res.locals.entity) {
-            await addCompany(tx, res.locals.entity);
-          }
-          res.locals.tx = tx;
-
-          // Aguarda o próximo handler terminar dentro da transação
-          await new Promise<void>((resolve, reject) => {
-            // Detecta quando a resposta foi enviada
-            const onFinish = () => {
-              cleanup();
-              if (res.statusCode >= 400) {
-                reject(new TransactionAbortError(`Response status ${res.statusCode}`));
-              } else {
-                resolve();
-              }
-            };
-
-            const onError = (err: Error) => {
-              cleanup();
-              reject(err);
-            };
-
-            const cleanup = () => {
-              res.removeListener("finish", onFinish);
-              res.removeListener("error", onError);
-            };
-
-            res.on("finish", onFinish);
-            res.on("error", onError);
-
-            // Chama o próximo handler
-            next();
-          });
-        },
-        {
-          maxWait: options?.maxWait || 30_000,
-          timeout: options?.timeout || 30_000,
-        },
-      )
-      .catch((err) => {
-        // Se já respondeu, não faz nada (rollback já aconteceu)
-        if (res.headersSent) {
-          if (!(err instanceof TransactionAbortError)) {
-            logger.error(
-              "[@mateusseiboth/ts-commons] Transactional: Erro pós-resposta (rollback executado):",
-              err.message,
-            );
-          }
-          return;
+    runInTransaction(
+      prisma,
+      async (tx) => {
+        const addCompany = options?.companyIdInjector ?? _addCompanyFn;
+        if (addCompany && res.locals.entity) {
+          await addCompany(tx, res.locals.entity);
         }
-        next(err);
-      });
+        res.locals.tx = tx;
+
+        // Aguarda o próximo handler terminar dentro da transação
+        await new Promise<void>((resolve, reject) => {
+          // Detecta quando a resposta foi enviada
+          const onFinish = () => {
+            cleanup();
+            if (res.statusCode >= 400) {
+              reject(new TransactionAbortError(`Response status ${res.statusCode}`));
+            } else {
+              resolve();
+            }
+          };
+
+          const onError = (err: Error) => {
+            cleanup();
+            reject(err);
+          };
+
+          const cleanup = () => {
+            res.removeListener("finish", onFinish);
+            res.removeListener("error", onError);
+          };
+
+          res.on("finish", onFinish);
+          res.on("error", onError);
+
+          // Chama o próximo handler
+          next();
+        });
+      },
+      {
+        maxWait: options?.maxWait || 30_000,
+        timeout: options?.timeout || 30_000,
+      },
+    ).catch((err) => {
+      // Se já respondeu, não faz nada (rollback já aconteceu)
+      if (res.headersSent) {
+        if (!(err instanceof TransactionAbortError)) {
+          logger.error(
+            "[@mateusseiboth/ts-decorators] Transactional: Erro pós-resposta (rollback executado):",
+            err.message,
+          );
+        }
+        return;
+      }
+      next(err);
+    });
   };
 }
 
+const WRITE_METHODS = ["create", "update", "deleteById"];
+const MARCA_TRANSACTIONAL = Symbol("ts-decorators:transactional");
+
 /**
- * Decorator de classe: envolve métodos de escrita com savepoints.
- * Requer que this.DAO.tx já seja uma TransactionClient.
+ * Decorator de classe: envolve métodos de escrita com savepoints, os herdados da classe base
+ * inclusive.
+ * Requer que this.DAO.tx já seja uma transação (Prisma 7 ou Prisma 8).
  */
 export function TransactionalClass<T extends { new (...args: any[]): any }>(
   constructor: T,
@@ -167,20 +176,13 @@ export function TransactionalClass<T extends { new (...args: any[]): any }>(
   if (!context || !isDecoratorContext(context)) {
     warnLegacy("TransactionalClass");
   }
-  const writeMethods = ["create", "update", "deleteById"];
+  wrapMetodosDaClasse(constructor, MARCA_TRANSACTIONAL, ({ name: methodName, original }) => {
+    if (!WRITE_METHODS.includes(methodName)) return undefined;
+    const originalMethod = original;
 
-  for (const methodName of Object.getOwnPropertyNames(constructor.prototype)) {
-    if (methodName === "constructor") continue;
-    if (!writeMethods.includes(methodName)) continue;
-
-    const descriptor = Object.getOwnPropertyDescriptor(constructor.prototype, methodName);
-    if (!descriptor || typeof descriptor.value !== "function") continue;
-
-    const originalMethod = descriptor.value;
-
-    descriptor.value = async function (this: any, ...args: any[]) {
+    return async function (this: any, ...args: any[]) {
       const tx = this.DAO?.tx;
-      if (!tx?.$executeRawUnsafe) return originalMethod.call(this, ...args);
+      if (!isPrisma7Tx(tx) && !isPrisma8Tx(tx)) return originalMethod.call(this, ...args);
 
       const useSavepoint = savepointDecision[_savepointPolicy](tx);
       _writesByTx.set(tx, (_writesByTx.get(tx) ?? 0) + 1);
@@ -189,24 +191,24 @@ export function TransactionalClass<T extends { new (...args: any[]): any }>(
 
       const savepointName = `sp_${methodName}_${++_savepointSeq}`;
       try {
-        await tx.$executeRawUnsafe(`SAVEPOINT "${savepointName}"`);
+        await runStatement(tx, `SAVEPOINT "${savepointName}"`);
         logger.debug(
           () =>
-            `[@mateusseiboth/ts-commons] Transactional: ${constructor.name}.${methodName} → SAVEPOINT criado (${savepointName})`,
+            `[@mateusseiboth/ts-decorators] Transactional: ${constructor.name}.${methodName} → SAVEPOINT criado (${savepointName})`,
         );
         const result = await originalMethod.call(this, ...args);
-        await tx.$executeRawUnsafe(`RELEASE SAVEPOINT "${savepointName}"`);
+        await runStatement(tx, `RELEASE SAVEPOINT "${savepointName}"`);
         logger.debug(
           () =>
-            `[@mateusseiboth/ts-commons] Transactional: ${constructor.name}.${methodName} → SAVEPOINT liberado (${savepointName})`,
+            `[@mateusseiboth/ts-decorators] Transactional: ${constructor.name}.${methodName} → SAVEPOINT liberado (${savepointName})`,
         );
         return result;
       } catch (err) {
         try {
-          await tx.$executeRawUnsafe(`ROLLBACK TO SAVEPOINT "${savepointName}"`);
+          await runStatement(tx, `ROLLBACK TO SAVEPOINT "${savepointName}"`);
           logger.debug(
             () =>
-              `[@mateusseiboth/ts-commons] Transactional: ${constructor.name}.${methodName} → SAVEPOINT revertido (${savepointName})`,
+              `[@mateusseiboth/ts-decorators] Transactional: ${constructor.name}.${methodName} → SAVEPOINT revertido (${savepointName})`,
           );
         } catch {
           // Savepoint pode já ter sido rolled back
@@ -214,9 +216,7 @@ export function TransactionalClass<T extends { new (...args: any[]): any }>(
         throw err;
       }
     };
-
-    Object.defineProperty(constructor.prototype, methodName, descriptor);
-  }
+  });
 
   return constructor;
 }

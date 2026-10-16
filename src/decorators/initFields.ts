@@ -1,5 +1,10 @@
 import "reflect-metadata";
 import { logger } from "../functions/logger";
+import {
+  temporalTypeName,
+  type TemporalConstructor,
+  type TemporalFieldType,
+} from "../functions/parseTemporal";
 import { isDecoratorContext, warnLegacy } from "./_proxy";
 import { bumpMetadataVersion, createMetadataCache, freezeIfEnabled } from "./metadata";
 import { registerNestedModelLegacy, registerNestedModelMeta } from "./nestedModel";
@@ -13,14 +18,42 @@ const CLASS_FIELDS = new WeakMap<object, Record<string, string>>();
  */
 const FIELD_TYPES_CACHE = createMetadataCache<object, Readonly<Record<string, string>>>();
 
-/** Tipo aceito pelo @Field. */
-export type FieldType = string | Function | [Function];
+/** Tipos primitivos convertidos pelo @AutoConvert. */
+export type PrimitiveFieldType = "string" | "number" | "bigint" | "boolean" | "date";
+
+/**
+ * Nome de tipo aceito pelo @Field. Os literais são só para autocompletar —
+ * `string` continua valendo para tipo livre (o @AutoConvert deixa o valor como veio).
+ */
+export type FieldTypeName =
+  | PrimitiveFieldType
+  | TemporalFieldType
+  | "object"
+  | "any"
+  | (string & {});
+
+/**
+ * Model aninhado (relação): `@Field(PostModel)` para to-one, `@Field([PostModel])`
+ * para to-many. É `Function` de propósito — qualquer classe de model serve, com
+ * ou sem construtor público.
+ */
+export type NestedModelType = Function;
+
+/**
+ * Tipo aceito pelo @Field:
+ * - nome do tipo (`"number"`, `"zoneddatetime"`, `"Temporal.PlainDate"`…)
+ * - construtor do Temporal (`Temporal.ZonedDateTime`)
+ * - model aninhado (`PostModel`) ou lista de model (`[PostModel]`)
+ */
+export type FieldType = FieldTypeName | TemporalConstructor | NestedModelType | [NestedModelType];
 
 /**
  * Interpreta o argumento de @Field e separa a parte de "tipo primitivo"
  * (string guardada em CLASS_FIELDS) da parte de "model aninhado".
  *
  * - `@Field('number')`        → {typeString: 'number'}
+ * - `@Field(Temporal.PlainDate)` → {typeString: 'plaindate'} (não é model aninhado)
+ * - `@Field('zoneddatetime')` → {typeString: 'zoneddatetime'} (mesma coisa, por nome)
  * - `@Field(PostModel)`       → {typeString: 'object', nested: {model, isArray:false}}
  * - `@Field([PostModel])`     → {typeString: 'object', nested: {model, isArray:true}}
  * - `@Field()`                → {typeString: undefined} (deixa o reflect/any decidir)
@@ -30,6 +63,8 @@ function resolveFieldType(type: FieldType | undefined): {
   nested?: { model: Function; isArray: boolean };
 } {
   if (typeof type === "function") {
+    const temporal = temporalTypeName(type);
+    if (temporal) return { typeString: temporal };
     return { typeString: "object", nested: { model: type, isArray: false } };
   }
   if (Array.isArray(type)) {
@@ -119,7 +154,7 @@ export function InitFields<T extends { new (...args: any[]): {} }>(
     warnLegacy("InitFields");
   }
   const proto = constructor.prototype;
-  logger.debug("[@mateusseiboth/ts-commons] Initializing fields for", constructor.name);
+  logger.debug("[@mateusseiboth/ts-decorators] Initializing fields for", constructor.name);
   if (!CLASS_FIELDS.has(proto)) CLASS_FIELDS.set(proto, {});
   bumpMetadataVersion();
   return constructor;

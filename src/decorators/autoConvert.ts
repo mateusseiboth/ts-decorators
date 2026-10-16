@@ -1,3 +1,5 @@
+import { parseDate } from "../functions/parseDate";
+import { getTemporalConverter } from "../functions/parseTemporal";
 import { isDecoratorContext, warnLegacy } from "./_proxy";
 import { getFieldTypes } from "./initFields";
 import { createMetadataCache } from "./metadata";
@@ -27,29 +29,26 @@ const toBoolean: PrimitiveConverter = (val) => {
   return Boolean(val);
 };
 
-const toDate: PrimitiveConverter = (val) => {
-  if (val instanceof Date) return val;
-  if (val === 0 || val === "0") return null;
-  const d = new Date(val);
-  return isNaN(d.getTime()) ? null : d;
-};
-
 const toString: PrimitiveConverter = (val) => String(val);
 
 /**
  * Estratégias de conversão por tipo declarado no @Field. Cada tipo mapeia para
- * um conversor; tipo desconhecido cai no fallback (mantém o valor original).
+ * um conversor; tipos desconhecidos caem no fallback (mantém o valor original).
  */
 const primitiveConverters: Record<string, PrimitiveConverter> = {
   number: toNumber,
   bigint: toBigInt,
   boolean: toBoolean,
-  date: toDate,
+  date: parseDate,
   string: toString,
 };
 
+/**
+ * Resolve o conversor do tipo declarado: primitivos nativos primeiro, tipos do
+ * Temporal (`zoneddatetime`, `Temporal.PlainDate`, `duration`…) em seguida.
+ */
 function findConverter(type: string | undefined): PrimitiveConverter | undefined {
-  return primitiveConverters[type?.toLowerCase() ?? ""];
+  return primitiveConverters[type?.toLowerCase() ?? ""] ?? getTemporalConverter(type);
 }
 
 /**
@@ -82,7 +81,6 @@ export interface FieldConversion {
 export type ConversionPlan = ReadonlyMap<string, FieldConversion>;
 
 const PLAN_CACHE = createMetadataCache<object, ConversionPlan>();
-const EMPTY_PLAN: ConversionPlan = new Map();
 
 function buildConversionPlan(proto: any): ConversionPlan {
   const types = getFieldTypes(proto);
@@ -99,12 +97,16 @@ function buildConversionPlan(proto: any): ConversionPlan {
   return plan;
 }
 
-/** Plano de conversão da classe da instância, montado uma única vez por classe. */
+/**
+ * Plano de conversão da classe da instância, montado uma única vez por classe.
+ */
 export function getConversionPlan(instance: any): ConversionPlan {
   const proto = instance != null ? Object.getPrototypeOf(instance) : null;
   if (!proto) return EMPTY_PLAN;
   return PLAN_CACHE.get(proto, buildConversionPlan);
 }
+
+const EMPTY_PLAN: ConversionPlan = new Map();
 
 /**
  * Instancia (e converte) um único item de um model aninhado.
@@ -155,11 +157,14 @@ function instantiateNested(model: Function, item: any): any {
 function convertNestedValue(meta: NestedModelMeta, value: any): any {
   if (value === null || value === undefined) return value;
 
-  if (meta.isArray) {
-    if (Array.isArray(value)) return value.map((v) => instantiateNested(meta.model, v));
-    // valor único informado para um campo de lista → normaliza para array
-    return [instantiateNested(meta.model, value)];
-  }
+  // Arrays são sempre convertidos item a item, mesmo quando o campo foi
+  // declarado como to-one (@Field(Model)). Sem isso, o array inteiro seria
+  // passado para `setData` de uma única instância — nenhuma chave bate e o
+  // resultado fica só com os defaults da superclasse.
+  if (Array.isArray(value)) return value.map((v) => instantiateNested(meta.model, v));
+
+  // valor único informado para um campo de lista → normaliza para array
+  if (meta.isArray) return [instantiateNested(meta.model, value)];
 
   return instantiateNested(meta.model, value);
 }

@@ -43,10 +43,10 @@ describe("_proxy", () => {
   });
 
   describe("warnLegacy", () => {
-    test("emite warning com @mateusseiboth/ts-commons e LEGACY", () => {
+    test("emite warning com @mateusseiboth/ts-decorators e LEGACY", () => {
       warnLegacy("Foo");
       expect(capture.warnings.length).toBe(1);
-      expect(capture.warnings[0]).toContain("@mateusseiboth/ts-commons");
+      expect(capture.warnings[0]).toContain("@mateusseiboth/ts-decorators");
       expect(capture.warnings[0]).toContain("LEGACY");
       expect(capture.warnings[0]).toContain("Foo");
     });

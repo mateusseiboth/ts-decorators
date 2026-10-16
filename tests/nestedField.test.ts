@@ -53,6 +53,21 @@ describe("@Field com objetos customizados (nested)", () => {
       const user = new UserModel({ name: "Ana", profile: existing });
       expect(user.profile).toBe(existing);
     });
+
+    test("array em campo to-one é convertido item a item (não vira instância vazia)", () => {
+      const user = new UserModel({
+        name: "Ana",
+        profile: [
+          { id: "p1", bio: "a", followers: "1" },
+          { id: "p2", bio: "b", followers: "2" },
+        ],
+      }) as any;
+      expect(Array.isArray(user.profile)).toBe(true);
+      expect(user.profile.length).toBe(2);
+      expect(user.profile[0]).toBeInstanceOf(ProfileModel);
+      expect(user.profile[0].followers).toBe(1);
+      expect(user.profile[1].bio).toBe("b");
+    });
   });
 
   describe("AutoConvert instancia e converte arrays", () => {

@@ -26,11 +26,23 @@ export interface ProcessorOptions {
   /** Intervalo de poll do adapter em ms. Default: 1000. */
   pollMs?: number;
   /**
-   * Extrai a chave de serialização do payload. Jobs com a MESMA chave nunca rodam
-   * em paralelo (no máx. 1 em voo); um 2º job da mesma chave fica "pending" e não
-   * ocupa vaga. Ex.: `keyOf: (p) => p.ctx.entCodigo` serializa por entidade.
+   * Extrai a chave de serialização do payload. Jobs com a MESMA chave rodam no máx.
+   * `maxPerKey` em paralelo (default 1: nunca em paralelo); o job que excede o limite
+   * da chave fica "pending" e não ocupa vaga. Ex.: `keyOf: (p) => p.ctx.entCodigo`
+   * serializa por entidade.
    */
   keyOf?: (payload: any) => string | number | undefined;
+  /**
+   * Quantos jobs da MESMA chave podem estar em voo ao mesmo tempo. Default: 1. Só vale
+   * com `keyOf`. Ex.: `{ keyOf: (p) => p.ctx.entidade, maxPerKey: 3 }` deixa cada
+   * entidade rodar até 3 juntos, e a `concurrency` continua sendo o teto da fila.
+   */
+  maxPerKey?: number;
+  /**
+   * Tempo sem sinal de vida para o job "processing" ser dado como órfão (o processo que o rodava
+   * caiu) e voltar para a fila. Default: 60000. Nunca menos que três ciclos de `pollMs`.
+   */
+  staleAfterMs?: number;
 }
 
 interface ProcessorMeta {
@@ -39,6 +51,8 @@ interface ProcessorMeta {
   concurrency: number;
   pollMs: number;
   keyOf?: (payload: any) => string | number | undefined;
+  maxPerKey: number;
+  staleAfterMs?: number;
 }
 
 function register(instance: any, meta: ProcessorMeta): void {
@@ -47,6 +61,8 @@ function register(instance: any, meta: ProcessorMeta): void {
     concurrency: meta.concurrency,
     pollMs: meta.pollMs,
     keyOf: meta.keyOf,
+    maxPerKey: meta.maxPerKey,
+    staleAfterMs: meta.staleAfterMs,
   });
 }
 
@@ -63,6 +79,8 @@ export function Processor(queueName: string, options?: ProcessorOptions) {
   const concurrency = Math.max(1, options?.concurrency ?? 1);
   const pollMs = options?.pollMs ?? 1000;
   const keyOf = options?.keyOf;
+  const maxPerKey = Math.max(1, options?.maxPerKey ?? 1);
+  const staleAfterMs = options?.staleAfterMs;
 
   return function (...args: any[]): any {
     // TC39 Stage 3: (method, context)
@@ -71,7 +89,15 @@ export function Processor(queueName: string, options?: ProcessorOptions) {
       const context = args[1] as ClassMethodDecoratorContext;
       const methodName = String(context.name);
       context.addInitializer(function (this: any) {
-        register(this, { queueName, methodName, concurrency, pollMs, keyOf });
+        register(this, {
+          queueName,
+          methodName,
+          concurrency,
+          pollMs,
+          keyOf,
+          maxPerKey,
+          staleAfterMs,
+        });
         startProcessors();
       });
       return original;
@@ -82,7 +108,15 @@ export function Processor(queueName: string, options?: ProcessorOptions) {
     const target = args[0];
     const propertyKey = args[1] as string;
     const list: ProcessorMeta[] = Reflect.getMetadata(PROCESSOR_KEY, target.constructor) ?? [];
-    list.push({ queueName, methodName: propertyKey, concurrency, pollMs, keyOf });
+    list.push({
+      queueName,
+      methodName: propertyKey,
+      concurrency,
+      pollMs,
+      keyOf,
+      maxPerKey,
+      staleAfterMs,
+    });
     Reflect.defineMetadata(PROCESSOR_KEY, list, target.constructor);
     return args[2];
   };

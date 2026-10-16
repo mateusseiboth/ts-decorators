@@ -134,7 +134,7 @@ function warnIfLeaky(target: any, scope: DiScope, instance: any): void {
   if (!hasListeners(instance) && !hasCronJobs(instance)) return;
   _leakWarned.add(target);
   logger.warn(
-    `[@mateusseiboth/ts-commons] ⚠️  ${target.name} é @Transient e registra @Listen/@Cron: cada resolução deixa ` +
+    `[@mateusseiboth/ts-decorators] ⚠️  ${target.name} é @Transient e registra @Listen/@Cron: cada resolução deixa ` +
       `uma assinatura viva. Use @Singleton, ou @Scoped + container.clearScope(chave) ao fim do ` +
       `escopo, ou chame disposeListeners()/stopCronJobs() na mão.`,
   );

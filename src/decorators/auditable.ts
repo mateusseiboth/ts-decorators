@@ -17,6 +17,8 @@
 import type { Request, Response } from "express";
 
 import { logger } from "../functions/logger";
+import { isPrisma8Tx, ormCollection, runStatement } from "../prisma8/client";
+import { wrapMetodosDaClasse } from "./_method";
 import { isDecoratorContext, warnLegacy } from "./_proxy";
 
 export interface AuditEntry {
@@ -38,9 +40,32 @@ type AuditStorageAdapter = (entry: AuditEntry, tx?: any) => Promise<void>;
 const defaultStorage: AuditStorageAdapter = async (entry: AuditEntry, tx?: any) => {
   if (!tx) return;
   try {
+    await insertAuditLog(tx, entry);
+  } catch (err) {
+    // Auditoria não deve quebrar a operação principal
+    logger.error("[@mateusseiboth/ts-decorators] Auditable: Erro ao gravar audit_log:", err);
+  }
+};
+
+const AUDIT_INSERT = `INSERT INTO "audit_log" ("action", "entity", "entity_id", "user_id", "entidade", "before", "after", "timestamp", "method", "ip")`;
+
+function sqlLiteral(value: unknown): string {
+  if (value === null || value === undefined) return "NULL";
+  if (typeof value === "number") return String(value);
+  if (value instanceof Date) return `'${value.toISOString()}'`;
+  const text =
+    typeof value === "object" ? JSON.stringify(value) : String(value as string | boolean | bigint);
+  return `'${text.replace(/'/g, "''")}'`;
+}
+
+/**
+ * Prisma 7 vai parametrizado; no Prisma 8 o lado cru sem parâmetros exige literais, então os
+ * valores são escapados aqui (aspas dobradas) e o JSON entra com cast explícito.
+ */
+async function insertAuditLog(tx: any, entry: AuditEntry): Promise<void> {
+  if (!isPrisma8Tx(tx)) {
     await tx.$executeRawUnsafe(
-      `INSERT INTO "audit_log" ("action", "entity", "entity_id", "user_id", "entidade", "before", "after", "timestamp", "method", "ip")
-       VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7::jsonb, $8, $9, $10)`,
+      `${AUDIT_INSERT} VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7::jsonb, $8, $9, $10)`,
       entry.action,
       entry.entity,
       entry.entityId,
@@ -52,11 +77,24 @@ const defaultStorage: AuditStorageAdapter = async (entry: AuditEntry, tx?: any) 
       entry.method,
       entry.ip,
     );
-  } catch (err) {
-    // Auditoria não deve quebrar a operação principal
-    logger.error("[@mateusseiboth/ts-commons] Auditable: Erro ao gravar audit_log:", err);
+    return;
   }
-};
+  const values = [
+    entry.action,
+    entry.entity,
+    entry.entityId,
+    entry.userId,
+    entry.entidade,
+    JSON.stringify(entry.before),
+    JSON.stringify(entry.after),
+    entry.timestamp,
+    entry.method,
+    entry.ip,
+  ].map(sqlLiteral);
+  values[5] = `${values[5]}::jsonb`;
+  values[6] = `${values[6]}::jsonb`;
+  await runStatement(tx, `${AUDIT_INSERT} VALUES (${values.join(", ")})`);
+}
 
 // Configuração global do adapter de storage
 let _storageAdapter: AuditStorageAdapter = defaultStorage;
@@ -77,9 +115,9 @@ export interface AuditableOptions {
    * Busca o registro ANTES de alterar/apagar (um `findUnique` extra por
    * escrita) e guarda em `before`. Default: `true`, como sempre foi.
    *
-   * O que mudou já está no corpo da requisição — `after` conta a história sem
-   * uma ida a mais ao banco em cada UPDATE/DELETE. Ligue quando a auditoria
-   * precisar do valor antigo campo a campo (exigência legal, diff em tela).
+   * DESLIGUE (`captureBefore: false`) para poupar essa consulta quando o corpo
+   * da requisição já conta a história: o `after` diz o que mudou sem uma ida a
+   * mais ao banco em cada UPDATE/DELETE.
    */
   captureBefore?: boolean;
   /**
@@ -94,6 +132,24 @@ const DEFAULT_AUDIT_OPTIONS: Required<AuditableOptions> = {
   captureResponse: true,
 };
 
+function modelNameOf(instance: any, className: string): string {
+  return (instance.constructor as any).modelName || className.replace("Controller", "");
+}
+
+async function readBeforePrisma7(tx: any, modelName: string, entityId: string): Promise<any> {
+  const prismaModel = tx[modelName.charAt(0).toLowerCase() + modelName.slice(1)] ?? tx[modelName];
+  if (!prismaModel?.findUnique) return null;
+  return await prismaModel.findUnique({ where: { id: entityId } });
+}
+
+async function readBeforePrisma8(tx: any, modelName: string, entityId: string): Promise<any> {
+  const collection = ormCollection(tx, modelName) as
+    | { where?: (w: unknown) => { first(): Promise<unknown> } }
+    | undefined;
+  if (typeof collection?.where !== "function") return null;
+  return await collection.where({ id: entityId }).first();
+}
+
 /** Estado anterior do registro — só quando explicitamente pedido. */
 async function readBefore(
   instance: any,
@@ -103,11 +159,9 @@ async function readBefore(
 ): Promise<any> {
   if (!entityId || !tx) return null;
   try {
-    const modelName =
-      (instance.constructor as any).modelName || className.replace("Controller", "");
-    const prismaModel = tx[modelName.charAt(0).toLowerCase() + modelName.slice(1)];
-    if (!prismaModel?.findUnique) return null;
-    return await prismaModel.findUnique({ where: { id: entityId } });
+    const modelName = modelNameOf(instance, className);
+    const read = isPrisma8Tx(tx) ? readBeforePrisma8 : readBeforePrisma7;
+    return await read(tx, modelName, entityId);
   } catch {
     // ignora se não conseguir buscar o estado anterior
     return null;
@@ -138,6 +192,8 @@ export function Auditable(...args: any[]): any {
     applyAuditable(constructor, context, opts);
 }
 
+const MARCA_AUDITABLE = Symbol("ts-decorators:auditable");
+
 function applyAuditable<T extends { new (...args: any[]): any }>(
   constructor: T,
   context: ClassDecoratorContext | undefined,
@@ -148,18 +204,12 @@ function applyAuditable<T extends { new (...args: any[]): any }>(
   }
   const className = constructor.name;
 
-  for (const methodName of Object.getOwnPropertyNames(constructor.prototype)) {
-    if (methodName === "constructor") continue;
-
+  wrapMetodosDaClasse(constructor, MARCA_AUDITABLE, ({ name: methodName, original }) => {
     const action = METHOD_ACTION_MAP[methodName];
-    if (!action) continue;
+    if (!action) return undefined;
+    const originalMethod = original;
 
-    const descriptor = Object.getOwnPropertyDescriptor(constructor.prototype, methodName);
-    if (!descriptor || typeof descriptor.value !== "function") continue;
-
-    const originalMethod = descriptor.value;
-
-    descriptor.value = async function (this: any, req: Request, res: Response, ...rest: any[]) {
+    return async function (this: any, req: Request, res: Response, ...rest: any[]) {
       const entityId = req.params?.id || this.data?.id || null;
       const userId = res.locals?.userInfo?.id || "unknown";
       const entidade = Number(res.locals?.entity || 0);
@@ -207,9 +257,7 @@ function applyAuditable<T extends { new (...args: any[]): any }>(
 
       return result;
     };
-
-    Object.defineProperty(constructor.prototype, methodName, descriptor);
-  }
+  });
 
   return constructor;
 }

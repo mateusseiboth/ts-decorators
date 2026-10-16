@@ -87,7 +87,7 @@ export function registerNestedModelMeta(
  * Para listas/arrays, prefira `@Field([OutroModel])`.
  */
 export function NestedModel(modelClass: Function) {
-  logger.debug(`[@mateusseiboth/ts-commons] Registering nested model:`, modelClass.name);
+  logger.debug(`[@mateusseiboth/ts-decorators] Registering nested model:`, modelClass.name);
   return function (...args: any[]): any {
     // New TC39 field decorator: (value, context)
     if (args.length === 2 && isDecoratorContext(args[1]) && args[1].kind === "field") {

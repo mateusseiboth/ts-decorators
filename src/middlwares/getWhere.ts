@@ -4,46 +4,11 @@ import { OPTIONS_FILTER } from "../constants/default";
 import { Controller } from "../Controller";
 import { getModel } from "../decorators/getModel";
 import { getFieldTypes } from "../decorators/initFields";
+import { ClientError } from "../errors/commons";
 import { collectFieldMeta } from "../functions/collectFieldsTypes";
+import { parseDate } from "../functions/parseDate";
+import { isDateLikeFieldType } from "../functions/parseTemporal";
 import { publishRequestValue } from "../handlers/context";
-
-function expandRanges(rawValues: string[], isNumeric: boolean, typePrefix?: string) {
-  const expanded: string[] = [];
-
-  rawValues.forEach((val) => {
-    if (!val) return;
-
-    let type = typePrefix; // ex: "contains"
-    let actualValue = val;
-
-    // detecta se cada valor individual já tem um type separado
-    if (val.includes(":")) {
-      const parts = val.split(":");
-      if (OPTIONS_FILTER.includes(parts[0] as string)) {
-        type = parts[0];
-        actualValue = parts.slice(1).join(":");
-      }
-    }
-
-    const isNegative = actualValue.startsWith("!");
-    let cleanVal = isNegative ? actualValue.slice(1) : actualValue;
-
-    // só expande range se for numérico
-    if (isNumeric && cleanVal.includes("-")) {
-      const [start, end] = cleanVal.split("-").map(Number);
-      //@ts-ignore dynamic loop
-      for (let i = start; i <= end; i++) {
-        expanded.push(
-          type ? `${type}:${isNegative ? "!" : ""}${i}` : `${isNegative ? "!" : ""}${i}`,
-        );
-      }
-    } else {
-      expanded.push(type ? `${type}:${actualValue}` : actualValue);
-    }
-  });
-
-  return expanded;
-}
 
 export function getWhere<T extends object>(
   req: Request,
@@ -55,24 +20,29 @@ export function getWhere<T extends object>(
   let where: Record<string, any> = {};
   const classRecord = getModel(classBase.tag);
   const { types: fieldTypes, listPaths } = collectFieldMeta(classRecord.prototype);
+
   const conditions: Record<string, any> = {};
+  const errors: { path: string; message: string }[] = [];
 
   // Percorre a QUERY (2-3 chaves), não o model inteiro (dezenas de campos, mais
   // as relações achatadas). `hasOwn` garante que só campo declarado vira filtro.
   for (const key of Object.keys(req.query ?? {})) {
     if (!Object.hasOwn(fieldTypes, key) || !req.query[key]) continue;
 
-    const condition = createWhereConditionQuery(
-      req.query[key] as string,
-      key,
-      fieldTypes,
-      listPaths,
-    );
+    const condition = readCondicao(req.query[key] as string, key, fieldTypes, listPaths, errors);
+    if (!condition) continue;
 
     if (!conditions[key]) conditions[key] = {};
     if (condition.OR?.length) conditions[key].OR = [...(conditions[key].OR || []), ...condition.OR];
     if (condition.NOT?.length)
       conditions[key].NOT = [...(conditions[key].NOT || []), ...condition.NOT];
+  }
+
+  // Valor que não serve para o campo volta para a tela, com o campo em `path`: rodar a consulta
+  // com outro valor devolveria uma lista errada sem ninguém perceber.
+  if (errors.length > 0) {
+    res.status(400).json({ message: "Filtro inválido.", errors });
+    return;
   }
 
   const finalConditions = Object.values(conditions);
@@ -109,6 +79,23 @@ export function getWhere<T extends object>(
   next();
 }
 
+/** A condição do campo; o valor inválido entra em `errors` e o campo fica sem condição. */
+function readCondicao(
+  value: string,
+  key: string,
+  fieldTypes: Record<string, string>,
+  listPaths: Set<string>,
+  errors: { path: string; message: string }[],
+): Record<string, any> | null {
+  try {
+    return createWhereConditionQuery(value, key, fieldTypes, listPaths);
+  } catch (erro) {
+    if (!(erro instanceof FiltroInvalidoError)) throw erro;
+    errors.push({ path: erro.path, message: erro.message });
+    return null;
+  }
+}
+
 /**
  * Cria condições para OR/NOT e nested fields.
  *
@@ -131,90 +118,189 @@ function buildNestedCondition(
   return nested;
 }
 
+/** O que se sabe do campo filtrado, pelo tipo declarado no `@Field`. */
+interface TipoDoCampo {
+  /** O nome do campo na query, para a mensagem de valor inválido. */
+  key: string;
+  isNumeric: boolean;
+  isString: boolean;
+  isBoolean: boolean;
+  isDate: boolean;
+}
+
+/** `10-20`, `-5--1`, `1.5-2.5`. Um número negativo sozinho (`-5`) não é intervalo. */
+const INTERVALO_NUMERICO = /^(-?\d+(?:\.\d+)?)-(-?\d+(?:\.\d+)?)$/;
+/** Duas datas ISO: o hífen que separa é o que vem antes do segundo ano. */
+const INTERVALO_DE_DATAS_ISO = /^(\d{4}-\d{2}-\d{2}\S*?)-(\d{4}-\d{2}-\d{2}\S*)$/;
+const TEM_HORA = /\d{1,2}:\d{2}/;
+
+const NUMERO = /^-?\d+(?:\.\d+)?$/;
+
+/**
+ * Valor de filtro que não serve para o tipo do campo. O `getWhere` responde 400 com ele; quem
+ * chama o `createWhereConditionQuery` direto recebe a exceção, com o campo em `path`.
+ */
+class FiltroInvalidoError extends ClientError {
+  constructor(
+    readonly path: string,
+    message: string,
+  ) {
+    super(message);
+  }
+}
+
+/**
+ * Número de verdade, ou recusa. Descartar o que não é dígito fazia `1,5` virar 15 e `abc` virar
+ * 0: o filtro rodava com um valor que ninguém pediu.
+ */
+const toNumber = (valor: string, campo: TipoDoCampo): number => {
+  const limpo = valor.trim();
+  if (!NUMERO.test(limpo)) {
+    throw new FiltroInvalidoError(campo.key, `Informe um número válido no filtro "${campo.key}".`);
+  }
+  return Number(limpo);
+};
+
+/** Data sem hora vale o dia inteiro; com hora, o instante exato. Data que não existe é recusada. */
+const toDate = (valor: string, campo: TipoDoCampo, borda: "inicio" | "fim"): Date => {
+  const data = parseDate(valor.trim());
+  if (!data) {
+    throw new FiltroInvalidoError(campo.key, `Informe uma data válida no filtro "${campo.key}".`);
+  }
+  if (TEM_HORA.test(valor)) return data;
+  const noDia = new Date(data);
+  if (borda === "inicio") noDia.setHours(0, 0, 0, 0);
+  else noDia.setHours(23, 59, 59, 999);
+  return noDia;
+};
+
+const toEscalar = (valor: string, campo: TipoDoCampo): unknown => {
+  if (campo.isNumeric) return toNumber(valor, campo);
+  if (campo.isBoolean) return Controller.safe.Boolean(valor);
+  return valor;
+};
+
+/** Valor de comparação (`gt`, `gte`, `lt`, `lte`): em data, a borda do dia que a comparação pede. */
+const toComparavel = (valor: string, campo: TipoDoCampo, borda: "inicio" | "fim"): unknown =>
+  campo.isDate ? toDate(valor, campo, borda) : toEscalar(valor, campo);
+
+const splitIntervalo = (valor: string, campo: TipoDoCampo): [string, string] | null => {
+  const padrao = campo.isDate ? INTERVALO_DE_DATAS_ISO : INTERVALO_NUMERICO;
+  const achado = valor.match(padrao);
+  if (achado) return [achado[1]!, achado[2]!];
+  if (campo.isNumeric) return null;
+  const partes = valor.split("-");
+  return partes.length === 2 ? [partes[0]!, partes[1]!] : null;
+};
+
+const buildIntervalo = (valor: string, campo: TipoDoCampo): Record<string, unknown> | null => {
+  const intervalo = splitIntervalo(valor, campo);
+  if (!intervalo) return null;
+  return {
+    gte: toComparavel(intervalo[0], campo, "inicio"),
+    lte: toComparavel(intervalo[1], campo, "fim"),
+  };
+};
+
+const buildLista = (valor: string, campo: TipoDoCampo): unknown[] =>
+  valor
+    .split(",")
+    .filter(Boolean)
+    .map((item) => (campo.isDate ? toDate(item, campo, "inicio") : toEscalar(item, campo)));
+
+const buildIgualdade = (valor: string, campo: TipoDoCampo): Record<string, unknown> => {
+  if (campo.isDate)
+    return { gte: toDate(valor, campo, "inicio"), lte: toDate(valor, campo, "fim") };
+  // `10-20` sem prefixo, em campo numérico, é o intervalo inteiro numa condição só.
+  const intervalo = campo.isNumeric ? buildIntervalo(valor, campo) : null;
+  return intervalo ?? { equals: toEscalar(valor, campo) };
+};
+
+/** Busca por trecho só existe em texto; nos demais tipos vale a igualdade. */
+const buildBuscaPorTexto =
+  (operador: "contains" | "startsWith" | "endsWith") =>
+  (valor: string, campo: TipoDoCampo): Record<string, unknown> =>
+    campo.isString ? { [operador]: valor, mode: "insensitive" } : buildIgualdade(valor, campo);
+
+interface Filtro {
+  build: (valor: string, campo: TipoDoCampo) => Record<string, unknown>;
+  /** O operador já é a negação de outro (`notInRange` é o `inRange` negado). */
+  negate?: boolean;
+}
+
+/** Um construtor por operador de `OPTIONS_FILTER`. Operador novo entra aqui. */
+const FILTROS: Record<string, Filtro> = {
+  equals: { build: buildIgualdade },
+  contains: { build: buildBuscaPorTexto("contains") },
+  containing: { build: buildBuscaPorTexto("contains") },
+  startsWith: { build: buildBuscaPorTexto("startsWith") },
+  endsWith: { build: buildBuscaPorTexto("endsWith") },
+  greaterThan: { build: (valor, campo) => ({ gt: toComparavel(valor, campo, "fim") }) },
+  greaterThanOrEqual: { build: (valor, campo) => ({ gte: toComparavel(valor, campo, "inicio") }) },
+  lessThan: { build: (valor, campo) => ({ lt: toComparavel(valor, campo, "inicio") }) },
+  lessThanOrEqual: { build: (valor, campo) => ({ lte: toComparavel(valor, campo, "fim") }) },
+  in: { build: (valor, campo) => ({ in: buildLista(valor, campo) }) },
+  notIn: { build: (valor, campo) => ({ notIn: buildLista(valor, campo) }) },
+  inRange: {
+    build: (valor, campo) => buildIntervalo(valor, campo) ?? buildIgualdade(valor, campo),
+  },
+  notInRange: {
+    build: (valor, campo) => buildIntervalo(valor, campo) ?? buildIgualdade(valor, campo),
+    negate: true,
+  },
+  isNull: { build: () => ({ equals: null }) },
+  notNull: { build: () => ({ not: null }) },
+};
+
+/** Tira o `!` da frente e diz se havia. */
+const stripNegacao = (valor: string): { valor: string; isNegado: boolean } =>
+  valor.startsWith("!") ? { valor: valor.slice(1), isNegado: true } : { valor, isNegado: false };
+
+/** Separa o prefixo (`in:`, `greaterThan:`) do valor. Sem prefixo conhecido, devolve o valor inteiro. */
+const splitOperador = (valor: string): { operador?: string; valor: string } => {
+  const indice = valor.indexOf(":");
+  const operador = indice > 0 ? valor.slice(0, indice) : "";
+  return OPTIONS_FILTER.includes(operador)
+    ? { operador, valor: valor.slice(indice + 1) }
+    : { valor };
+};
+
 export function createWhereConditionQuery(
   value: string | string[],
   key: string,
   modelBase: any,
   listPaths: Set<string> = new Set(),
 ): Record<string, any> {
-  const rawValues: string[] = Array.isArray(value) ? value : value.split(";").filter(Boolean); // agora divide em múltiplos valores
-
-  const isNumericField = modelBase[key] === "number" || modelBase[key] === "bigint";
-  const isStringField = modelBase[key] === "string";
-  const isBooleanField = modelBase[key] === "boolean";
-  const isDate = modelBase[key] === "date" || modelBase[key] === "Date";
+  const rawValues: string[] = Array.isArray(value) ? value : value.split(";").filter(Boolean);
+  const tipo = modelBase[key];
+  const campo: TipoDoCampo = {
+    key,
+    isNumeric: tipo === "number" || tipo === "bigint",
+    isString: tipo === "string",
+    isBoolean: tipo === "boolean",
+    isDate: isDateLikeFieldType(tipo),
+  };
 
   const OR: any[] = [];
   const NOT: any[] = [];
-  const finalValues = expandRanges(rawValues, isNumericField);
 
-  let type = "equals";
-  finalValues.forEach((val) => {
-    if (!val) return;
+  // O operador vale para os valores seguintes da mesma chave: `startsWith:01;02`.
+  let operadorAtual = "equals";
+  for (const rawValue of rawValues) {
+    if (!rawValue) continue;
 
-    let actualValue = val;
+    // O `!` nega antes ou depois do prefixo: `!in:1,2` e `in:!1,2`.
+    const antes = stripNegacao(rawValue);
+    const separado = splitOperador(antes.valor);
+    const depois = stripNegacao(separado.valor);
+    operadorAtual = separado.operador ?? operadorAtual;
 
-    // tipo de filtro: contains, startsWith, etc.
-    if (val.includes(":")) {
-      const parts = val.split(":");
-      if (OPTIONS_FILTER.includes(parts[0] as string)) {
-        type = parts[0] as string;
-        actualValue = parts.slice(1).join(":");
-      }
-    }
+    const filtro = FILTROS[operadorAtual] ?? FILTROS.equals!;
+    const isNegado = antes.isNegado || depois.isNegado || filtro.negate === true;
+    const condition = buildNestedCondition(key, filtro.build(depois.valor, campo), listPaths);
 
-    const isNegative = actualValue.startsWith("!");
-    if (isNegative) actualValue = actualValue.slice(1);
-
-    if (isNumericField) {
-      actualValue = actualValue.replace(/[^\d.-]/g, "");
-    }
-
-    const normalizedValue = isNumericField ? Number(actualValue) : actualValue;
-
-    let condition: any;
-    if (["contains", "startsWith", "endsWith"].includes(type) && isStringField) {
-      condition = {
-        [type]: normalizedValue,
-        mode: "insensitive",
-      };
-    } else if (type === "equals") {
-      if (isDate) {
-        condition = {
-          lte: new Date(new Date(normalizedValue).setHours(23, 59, 59, 999)),
-          gte: new Date(new Date(normalizedValue).setHours(0, 0, 0, 0)),
-        };
-      } else {
-        condition = {
-          equals: !isBooleanField ? normalizedValue : Controller.safe.Boolean(normalizedValue),
-        };
-      }
-    } else if (type === "greaterThan") {
-      condition = { gt: normalizedValue };
-    } else if (type === "lessThan") {
-      condition = { lt: normalizedValue };
-    } else if (type === "in") {
-      condition = {
-        in: String(normalizedValue)
-          .split(",")
-          .map((v) => (isNumericField ? Number(v) : v)),
-      };
-    } else if (type === "inRange") {
-      const [min, max] = String(normalizedValue)
-        .split("-")
-        .map((v) => (isNumericField ? Number(v) : v));
-      condition = { gte: min, lte: max };
-    } else if (type === "isNull") {
-      condition = { equals: null };
-    } else {
-      condition = { equals: normalizedValue };
-    }
-
-    const nestedCondition = buildNestedCondition(key, condition, listPaths);
-
-    if (isNegative) NOT.push(nestedCondition);
-    else OR.push(nestedCondition);
-  });
+    (isNegado ? NOT : OR).push(condition);
+  }
 
   return { OR, NOT };
 }
@@ -272,6 +358,15 @@ export function buildWhereFromQuery<T extends object>(
   return finalWhere;
 }
 
+/**
+ * `isNull` e `notNull` no formato do `createWhereCondition`. O valor depois dos dois-pontos é
+ * descartado: como texto, ele chegava ao banco como a data ou o número "null".
+ */
+const NULIDADE_SEM_EQUALS: Record<string, () => unknown> = {
+  isNull: () => null,
+  notNull: () => ({ not: null }),
+};
+
 export const createWhereCondition = (value: any, key: string, modelBase: any) => {
   if (typeof value === "object") return value;
   let internalValue = value;
@@ -286,6 +381,9 @@ export const createWhereCondition = (value: any, key: string, modelBase: any) =>
     type = parts[0];
     valuesString = parts.slice(1).join(":");
   }
+
+  const nulidade = NULIDADE_SEM_EQUALS[type];
+  if (nulidade) return { OR: [{ [key]: nulidade() }], NOT: [] };
 
   const values = valuesString.split(";");
 

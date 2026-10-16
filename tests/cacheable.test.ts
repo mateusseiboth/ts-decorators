@@ -1,7 +1,15 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
 import { clearLegacyWarnings } from "../src/decorators/_proxy";
-import { Cacheable, CacheMethod, clearAllCache, getCacheStats } from "../src/decorators/cacheable";
+import {
+  CacheProvider,
+  Cacheable,
+  CacheMethod,
+  Cached,
+  clearAllCache,
+  getCacheStats,
+  reportCacheKey,
+} from "../src/decorators/cacheable";
 import {
   captureLogs,
   captureWarnings,
@@ -126,6 +134,149 @@ describe("Cacheable", () => {
       await wrapped.call(ctx, req, r2);
       expect(r2._headers["X-Cache"]).toBe("HIT");
       expect(calls).toBe(1);
+    });
+  });
+
+  describe("Cacheable — options cacheable/invalidate", () => {
+    test("cacheia funções custom e invalida com funções custom", async () => {
+      class C {
+        async list(req: any, res: any) {
+          return res.json({ items: [1] });
+        }
+        async save(req: any, res: any) {
+          return res.json({ ok: true });
+        }
+      }
+      const D = Cacheable({ cacheable: ["list"], invalidate: ["save"] })(
+        C as any,
+        fakeClassContext("C"),
+      );
+      const i = new D();
+      const req = mockReq();
+
+      const r1 = mockRes({ locals: { entity: "1" } });
+      await i.list(req, r1);
+      expect(r1._headers["X-Cache"]).toBe("MISS");
+
+      const r2 = mockRes({ locals: { entity: "1" } });
+      await i.list(req, r2);
+      expect(r2._headers["X-Cache"]).toBe("HIT");
+
+      await i.save(req, mockRes({ locals: { entity: "1" } }));
+
+      const r3 = mockRes({ locals: { entity: "1" } });
+      await i.list(req, r3);
+      expect(r3._headers["X-Cache"]).toBe("MISS");
+    });
+
+    test("NÃO invalida quando a função de invalidação lança erro", async () => {
+      class C {
+        async get(req: any, res: any) {
+          return res.json({ ok: 1 });
+        }
+        async create(_req: any, _res: any) {
+          throw new Error("boom");
+        }
+      }
+      const D = Cacheable()(C as any, fakeClassContext("C"));
+      const i = new D();
+      const req = mockReq();
+
+      await i.get(req, mockRes({ locals: { entity: "1" } }));
+
+      await expect(i.create(req, mockRes({ locals: { entity: "1" } }))).rejects.toThrow("boom");
+
+      // Cache preservado porque o create falhou
+      const r = mockRes({ locals: { entity: "1" } });
+      await i.get(req, r);
+      expect(r._headers["X-Cache"]).toBe("HIT");
+    });
+  });
+
+  describe("CacheProvider (manual)", () => {
+    test("add / get / has / invalidate por chave", () => {
+      CacheProvider.add("k1", { v: 1 });
+      expect(CacheProvider.has("k1")).toBe(true);
+      expect(CacheProvider.get("k1")).toEqual({ v: 1 });
+
+      expect(CacheProvider.invalidate("k1")).toBe(1);
+      expect(CacheProvider.has("k1")).toBe(false);
+    });
+
+    test("get respeita expiração (ttl)", () => {
+      CacheProvider.add("k-exp", 42, -1);
+      expect(CacheProvider.get("k-exp")).toBeUndefined();
+    });
+
+    test("invalidate por prefixo (árvore de relatórios)", () => {
+      CacheProvider.add("report-A-fn-tag|ent:1", 1);
+      CacheProvider.add("report-A-fn-tag|ent:2", 2);
+      CacheProvider.add("report-B-fn-tag|ent:1", 3);
+
+      const removed = CacheProvider.invalidate("report-A-*");
+      expect(removed).toBe(2);
+      expect(CacheProvider.keys("report-B")).toHaveLength(1);
+    });
+
+    test("invalidate sem parâmetro limpa tudo", async () => {
+      class S {
+        async get(req: any, res: any) {
+          return res.json(1);
+        }
+      }
+      const D = Cacheable()(S as any, fakeClassContext("S"));
+      await new D().get(mockReq(), mockRes({ locals: { entity: "1" } }));
+      CacheProvider.add("k", 1);
+
+      CacheProvider.invalidate();
+      expect(getCacheStats()).toEqual({});
+      expect(CacheProvider.has("k")).toBe(false);
+    });
+  });
+
+  describe("@Cached (relatórios/valor de retorno, RLS via contexto)", () => {
+    test("cacheia o valor de retorno e reusa na 2ª chamada", async () => {
+      let calls = 0;
+
+      async function gerar(this: any, filtros: any) {
+        calls++;
+        return { rows: [filtros.x] };
+      }
+      const wrapped = Cached({ tag: "boletim", ttl: 5000 })(gerar, fakeMethodContext("gerar"));
+
+      const ctx = { constructor: { name: "BoletimController" } };
+      const out1 = await wrapped.call(ctx, { x: 1 });
+      const out2 = await wrapped.call(ctx, { x: 1 });
+
+      expect(out1).toEqual({ rows: [1] });
+      expect(out2).toEqual({ rows: [1] });
+      expect(calls).toBe(1);
+
+      // A chave segue o padrão report-<Classe>-<funcao>-<tag>
+      const keys = CacheProvider.keys("report-BoletimController-gerar-boletim");
+      expect(keys.length).toBeGreaterThanOrEqual(1);
+    });
+
+    test("args diferentes geram chaves diferentes", async () => {
+      let calls = 0;
+      async function gerar(this: any, filtros: any) {
+        calls++;
+        return filtros.x;
+      }
+      const wrapped = Cached({ tag: "t" })(gerar, fakeMethodContext("gerar"));
+      const ctx = { constructor: { name: "Rel" } };
+
+      await wrapped.call(ctx, { x: 1 });
+      await wrapped.call(ctx, { x: 2 });
+      expect(calls).toBe(2);
+    });
+  });
+
+  describe("reportCacheKey", () => {
+    test("monta a chave padronizada", () => {
+      expect(reportCacheKey("BoletimController", "gerar", "boletim", "ent:1")).toBe(
+        "report-BoletimController-gerar-boletim|ent:1",
+      );
     });
   });
 

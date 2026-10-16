@@ -1,6 +1,7 @@
 import "reflect-metadata";
 import type { RequestHandler } from "express";
 
+import { logger } from "../functions/logger";
 import { ROUTERS_KEY } from "./router-metadata";
 
 export type RegistryRouterOptions = {
@@ -12,8 +13,8 @@ export type RegistryRouterOptions = {
 export function RegistryRouter(options: RegistryRouterOptions) {
   return function (target: any, propertyKey: string) {
     const currentRoutes = Reflect.getMetadata(ROUTERS_KEY, target) || [];
-    console.log(`Registering router for method: ${propertyKey}, folder: ${options.folder}`);
-    console.log(`Current registered routes before adding: ${currentRoutes.length}`);
+    logger.debug(`Registering router for method: ${propertyKey}, folder: ${options.folder}`);
+    logger.debug(`Current registered routes before adding: ${currentRoutes.length}`);
     currentRoutes.push({
       methodName: propertyKey,
       folder: options.folder,
