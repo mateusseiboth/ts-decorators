@@ -19,7 +19,7 @@
 import "reflect-metadata";
 import { logger } from "../functions/logger";
 import { appendMetadataItem } from "./_metadataList";
-import { isDecoratorContext, warnLegacy } from "./_proxy";
+import { isDecoratorContext } from "./_proxy";
 
 const CRON_KEY = "cron:jobs";
 const _timers = new Set<ReturnType<typeof setInterval>>();
@@ -140,7 +140,6 @@ export function Cron(expr: string | number) {
     }
 
     // Legacy: (target, propertyKey, descriptor)
-    warnLegacy("Cron");
     const target = args[0];
     const propertyKey = args[1] as string;
     appendMetadataItem<CronMeta>(CRON_KEY, target.constructor, { expr, methodName: propertyKey });

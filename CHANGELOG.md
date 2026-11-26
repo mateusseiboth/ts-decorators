@@ -4,6 +4,14 @@ Da versão mais nova para a mais antiga. As entradas marcadas como **base** vier
 de que este pacote nasceu (mesma origem, linhas separadas desde julho de 2026) e chegam aqui
 juntas na 2.0.0-rc.1. A versão entre parênteses é a da base, para quem compara as duas linhas.
 
+## 2.0.0-rc.37 (2026-11-26)
+
+- **O aviso "LEGACY" saiu do pacote.** O ts-decorators é do modo legado (`experimentalDecorators`
+  + `emitDecoratorMetadata`): nenhum decorator avisa no boot. `warnLegacy`, `clearLegacyWarnings` e
+  o `setLegacyWarnings` da rc.36 continuam exportados como no-op deprecated.
+- O `@ModelTagged` continua registrando pelo `static tag` no legado; no contexto TC39, espera o
+  inicializador da classe (rc.35).
+
 ## 2.0.0-rc.36 (2026-11-26)
 
 Rotas, container e transação para backends com registry e controllers decorados.

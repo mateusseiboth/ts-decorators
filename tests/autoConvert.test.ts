@@ -106,7 +106,7 @@ describe("AutoConvert", () => {
       }
       const desc = Object.getOwnPropertyDescriptor(Svc.prototype, "doStuff")!;
       AutoConvert(Svc.prototype, "doStuff", desc);
-      expect(warnCap.warnings.some((w) => w.includes("AutoConvert"))).toBe(true);
+      expect(warnCap.warnings.some((w) => w.includes("LEGACY"))).toBe(false);
     });
   });
 });

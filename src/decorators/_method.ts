@@ -6,7 +6,7 @@
  * `build(original, methodName)` deve retornar a função substituta do método.
  */
 
-import { isDecoratorContext, warnLegacy } from "./_proxy";
+import { isDecoratorContext } from "./_proxy";
 
 export type MethodWrapper = (original: Function, methodName: string) => Function;
 
@@ -42,7 +42,6 @@ export function makeMethodDecorator(name: string, build: MethodWrapper) {
     }
 
     // Legacy: (target, propertyKey, descriptor)
-    warnLegacy(name);
     const propertyKey = args[1] as string;
     const descriptor = args[2] as PropertyDescriptor;
     descriptor.value = buildMatching(descriptor.value, propertyKey);

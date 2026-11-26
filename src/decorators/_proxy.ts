@@ -1,25 +1,10 @@
 /**
- * Utilitário para detecção de padrão de decorator (Legacy vs TC39 Stage 3).
+ * Detecção do formato do decorator (legado ou TC39 Stage 3).
  *
- * - Legacy (experimentalDecorators): TypeScript < 5 / flag ativada
- * - Novo (TC39 Stage 3): TypeScript 5+ padrão
- *
- * Quando um decorator é chamado no padrão legacy, emite um aviso no console
- * (uma vez por nome de decorator).
+ * O pacote é do modo legado (`experimentalDecorators` + `emitDecoratorMetadata`): o `@Injectable`
+ * depende do `design:paramtypes`, que só o legado emite. Os decorators que também entendem o
+ * contexto do TC39 continuam entendendo, mas nenhum avisa quando é usado no legado.
  */
-
-import { logger } from "../functions/logger";
-
-const _legacyWarnings = new Set<string>();
-let _avisaLegado = true;
-
-/**
- * Liga ou desliga o aviso de decorator legado. O projeto que usa o modo legado de propósito
- * (`experimentalDecorators`, porque o `@Injectable` depende do `design:paramtypes`) desliga no boot.
- */
-export function setLegacyWarnings(enabled: boolean): void {
-  _avisaLegado = enabled;
-}
 
 /** Detecta se o argumento é um DecoratorContext TC39 Stage 3 */
 export function isDecoratorContext(arg: any): boolean {
@@ -32,17 +17,11 @@ export function isDecoratorContext(arg: any): boolean {
   );
 }
 
-/** Emite aviso de uso de decorator legacy (uma vez por nome) */
-export function warnLegacy(name: string): void {
-  if (!_avisaLegado || _legacyWarnings.has(name)) return;
-  _legacyWarnings.add(name);
-  logger.warn(
-    `[@mateusseiboth/ts-decorators] ⚠️  Decorator @${name} está sendo usado no padrão LEGACY (experimentalDecorators). ` +
-      `Migre para o novo padrão TC39 Stage 3 decorators.`,
-  );
-}
+/** @deprecated O aviso de decorator legado saiu do pacote; a chamada não faz nada. */
+export function warnLegacy(_name: string): void {}
 
-/** Limpa os warnings registrados (útil para testes) */
-export function clearLegacyWarnings(): void {
-  _legacyWarnings.clear();
-}
+/** @deprecated O aviso de decorator legado saiu do pacote; a chamada não faz nada. */
+export function clearLegacyWarnings(): void {}
+
+/** @deprecated O aviso de decorator legado saiu do pacote; a chamada não faz nada. */
+export function setLegacyWarnings(_enabled: boolean): void {}

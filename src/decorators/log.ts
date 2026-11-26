@@ -1,14 +1,9 @@
 import { logger } from "../functions/logger";
-import { isDecoratorContext, warnLegacy } from "./_proxy";
 
 export function logDecorator<T extends new (...args: any[]) => {}>(
   constructor: T,
-  context?: ClassDecoratorContext,
+  _context?: ClassDecoratorContext,
 ): T {
-  if (!context || !isDecoratorContext(context)) {
-    warnLegacy("logDecorator");
-  }
-
   const className = constructor.name;
 
   // Injeta um método de logging na classe

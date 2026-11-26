@@ -19,7 +19,7 @@
 
 import type { NextFunction, Request, Response } from "express";
 
-import { isDecoratorContext, warnLegacy } from "./_proxy";
+import { isDecoratorContext } from "./_proxy";
 
 export interface RateLimitOptions {
   /** Número máximo de requisições na janela. Default: 100 */
@@ -132,11 +132,8 @@ export function RateLimit(options?: RateLimitOptions) {
 
   return function <T extends { new (...args: any[]): any }>(
     constructor: T,
-    context?: ClassDecoratorContext,
+    _context?: ClassDecoratorContext,
   ): T {
-    if (!context || !isDecoratorContext(context)) {
-      warnLegacy("RateLimit");
-    }
     const className = constructor.name;
 
     for (const methodName of Object.getOwnPropertyNames(constructor.prototype)) {
@@ -216,7 +213,6 @@ export function RateLimitMethod(options?: RateLimitOptions) {
     }
 
     // Legacy method decorator: (target, propertyKey, descriptor)
-    warnLegacy("RateLimitMethod");
     const _target = args[0];
     const propertyKey = args[1] as string;
     const descriptor = args[2] as PropertyDescriptor;

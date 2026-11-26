@@ -1,6 +1,11 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
-import { clearLegacyWarnings, isDecoratorContext, warnLegacy } from "../src/decorators/_proxy";
+import {
+  clearLegacyWarnings,
+  isDecoratorContext,
+  setLegacyWarnings,
+  warnLegacy,
+} from "../src/decorators/_proxy";
 import { captureWarnings, fakeClassContext, fakeFieldContext, fakeMethodContext } from "./_helpers";
 
 describe("_proxy", () => {
@@ -42,32 +47,14 @@ describe("_proxy", () => {
     });
   });
 
-  describe("warnLegacy", () => {
-    test("emite warning com @mateusseiboth/ts-decorators e LEGACY", () => {
+  describe("warnLegacy (deprecated)", () => {
+    test("não avisa: o modo legado é o modo do pacote", () => {
       warnLegacy("Foo");
-      expect(capture.warnings.length).toBe(1);
-      expect(capture.warnings[0]).toContain("@mateusseiboth/ts-decorators");
-      expect(capture.warnings[0]).toContain("LEGACY");
-      expect(capture.warnings[0]).toContain("Foo");
-    });
-    test("emite apenas uma vez por nome", () => {
-      warnLegacy("Once");
-      warnLegacy("Once");
-      expect(capture.warnings.length).toBe(1);
-    });
-    test("emite para nomes diferentes", () => {
-      warnLegacy("A");
-      warnLegacy("B");
-      expect(capture.warnings.length).toBe(2);
-    });
-  });
-
-  describe("clearLegacyWarnings", () => {
-    test("permite re-emitir após limpar", () => {
-      warnLegacy("X");
+      warnLegacy("Bar");
       clearLegacyWarnings();
-      warnLegacy("X");
-      expect(capture.warnings.length).toBe(2);
+      setLegacyWarnings(true);
+      warnLegacy("Foo");
+      expect(capture.warnings).toEqual([]);
     });
   });
 });

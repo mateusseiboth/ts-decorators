@@ -11,8 +11,6 @@
  */
 import type { z } from "zod";
 
-import { isDecoratorContext, warnLegacy } from "./_proxy";
-
 export interface ConfigOptions {
   /** Default: `process.env`. */
   source?: Record<string, string | undefined>;
@@ -70,8 +68,7 @@ export function defineConfig<S extends z.ZodType>(
  */
 export function Config(schema: z.ZodType, options?: ConfigOptions) {
   const values = defineConfig(schema, options);
-  return function <T extends { prototype: object }>(target: T, context?: unknown): T {
-    if (!isDecoratorContext(context)) warnLegacy("Config");
+  return function <T extends { prototype: object }>(target: T, _context?: unknown): T {
     for (const [key, value] of Object.entries(values)) {
       Object.defineProperty(target.prototype, key, { value, enumerable: true, writable: false });
     }

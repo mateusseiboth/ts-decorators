@@ -1,7 +1,7 @@
 import { parseDate } from "../functions/parseDate";
 import { getTemporalConverter } from "../functions/parseTemporal";
 import { matchAsync } from "./_method";
-import { isDecoratorContext, warnLegacy } from "./_proxy";
+import { isDecoratorContext } from "./_proxy";
 import { getFieldTypes } from "./initFields";
 import { createMetadataCache } from "./metadata";
 import { getNestedModels, type NestedModelMeta } from "./nestedModel";
@@ -199,7 +199,6 @@ export function AutoConvert(...args: any[]): any {
   }
 
   // Legacy method decorator: (target, propertyKey, descriptor)
-  warnLegacy("AutoConvert");
   const descriptor = args[2] as PropertyDescriptor;
   descriptor.value = wrapWithAutoConvert(descriptor.value);
 }

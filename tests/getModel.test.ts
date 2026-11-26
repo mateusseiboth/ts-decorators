@@ -59,7 +59,7 @@ describe("getModel / ModelTagged / DAOFor", () => {
       DAOFor(7772)(TestDAO);
       expect(getDAO(7772)).toBe(TestDAO);
       expect((TestDAO as any).model).toBe(SimpleModel);
-      expect(warnCap.warnings.some((w) => w.includes("DAOFor"))).toBe(true);
+      expect(warnCap.warnings.some((w) => w.includes("LEGACY"))).toBe(false);
     });
   });
 

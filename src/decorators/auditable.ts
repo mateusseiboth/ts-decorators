@@ -25,7 +25,6 @@ import { isPrisma8Tx, ormCollection } from "../prisma8/client";
 import { insertAuditLog } from "./_auditLogSql";
 import { enqueueAuditRead, flushAuditReads } from "./_auditReads";
 import { wrapMetodosDaClasse } from "./_method";
-import { isDecoratorContext, warnLegacy } from "./_proxy";
 
 export { flushAuditReads };
 
@@ -284,9 +283,6 @@ function applyAuditable<T extends { new (...args: any[]): any }>(
   context: ClassDecoratorContext | undefined,
   opts: Required<AuditableOptions>,
 ): T {
-  if (!context || !isDecoratorContext(context)) {
-    warnLegacy("Auditable");
-  }
   const className = constructor.name;
   const readMethods = readMethodsOf(opts.read);
 

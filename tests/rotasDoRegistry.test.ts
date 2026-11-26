@@ -17,7 +17,7 @@ import { RegistryRouter } from "../src/decorators/registry-router";
 import { Rest } from "../src/decorators/rest";
 import { clearRegisteredRoutes } from "../src/decorators/route-registry";
 import { RouteBuilder } from "../src/decorators/router-builder";
-import { Transactional } from "../src/decorators/transactional";
+import { setTransactionalCompanyFn, Transactional } from "../src/decorators/transactional";
 import { setHandlerContext } from "../src/handlers/context";
 import { configureTenantGucs, resetTenantGucs } from "../src/handlers/tenantGucs";
 import { captureWarnings } from "./_helpers";
@@ -219,6 +219,7 @@ describe("Transactional (middleware) com as GUCs ligadas", () => {
   });
 
   test("injeta as GUCs mesmo sem res.locals.entity (super admin)", async () => {
+    setTransactionalCompanyFn(null);
     setHandlerContext(() => ({ superAdmin: true }));
     configureTenantGucs((ctx) => ({ "app.is_super_admin": ctx?.superAdmin === true }));
     const calls: unknown[][] = [];

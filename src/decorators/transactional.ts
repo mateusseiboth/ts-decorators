@@ -38,7 +38,6 @@ import {
 import { runInTransaction, type PrismaClientLike } from "../handlers/prisma";
 import { isPrisma7Tx, isPrisma8Tx, runStatement } from "../prisma8/client";
 import { wrapMetodosDaClasse } from "./_method";
-import { isDecoratorContext, warnLegacy } from "./_proxy";
 
 type PrismaLike = PrismaClientLike;
 
@@ -199,11 +198,8 @@ const MARCA_TRANSACTIONAL = Symbol("ts-decorators:transactional");
  */
 export function TransactionalClass<T extends { new (...args: any[]): any }>(
   constructor: T,
-  context?: ClassDecoratorContext,
+  _context?: ClassDecoratorContext,
 ): T {
-  if (!context || !isDecoratorContext(context)) {
-    warnLegacy("TransactionalClass");
-  }
   wrapMetodosDaClasse(constructor, MARCA_TRANSACTIONAL, ({ name: methodName, original }) => {
     if (!WRITE_METHODS.includes(methodName)) return undefined;
     const originalMethod = original;

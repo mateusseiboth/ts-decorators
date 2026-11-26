@@ -6,7 +6,7 @@ import {
   type TemporalConstructor,
   type TemporalFieldType,
 } from "../functions/parseTemporal";
-import { isDecoratorContext, warnLegacy } from "./_proxy";
+import { isDecoratorContext } from "./_proxy";
 import { bumpMetadataVersion, createMetadataCache, freezeIfEnabled } from "./metadata";
 import { registerNestedModelLegacy, registerNestedModelMeta } from "./nestedModel";
 
@@ -146,7 +146,6 @@ export function Field(typeOrOptions?: FieldType | FieldOptions) {
     }
 
     // Legacy property decorator: (target, propertyKey)
-    warnLegacy("Field");
     const [target, propertyKey] = args;
     saveLegacyFieldOptions(target, propertyKey as string, options);
     let fields = CLASS_FIELDS.get(target);
@@ -203,7 +202,6 @@ export function InitFields<T extends { new (...args: any[]): {} }>(
       });
     }
   } else {
-    warnLegacy("InitFields");
   }
   const proto = constructor.prototype;
   logger.debug("[@mateusseiboth/ts-decorators] Initializing fields for", constructor.name);

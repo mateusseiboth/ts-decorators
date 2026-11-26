@@ -31,7 +31,7 @@ import { logger } from "../functions/logger";
 import { stableStringify } from "../functions/object";
 import { findTenantScope, getHandlerContext } from "../handlers/context";
 import { matchAsync, wrapMetodosDaClasse } from "./_method";
-import { isDecoratorContext, warnLegacy } from "./_proxy";
+import { isDecoratorContext } from "./_proxy";
 
 interface CacheEntry {
   data: any;
@@ -217,11 +217,8 @@ export function Cacheable(options: CacheOptions = {}) {
 
   return function <T extends { new (...args: any[]): any }>(
     constructor: T,
-    context?: ClassDecoratorContext,
+    _context?: ClassDecoratorContext,
   ): T {
-    if (!context || !isDecoratorContext(context)) {
-      warnLegacy("Cacheable");
-    }
     const className = constructor.name;
 
     // Funções que cacheiam: retornam do cache se disponível.
@@ -335,7 +332,6 @@ export function CacheMethod(options?: { ttl?: number }) {
     }
 
     // Legacy method decorator: (target, propertyKey, descriptor)
-    warnLegacy("CacheMethod");
     const _target = args[0];
     const propertyKey = args[1] as string;
     const descriptor = args[2] as PropertyDescriptor;
@@ -523,7 +519,6 @@ export function Cached(options?: CachedOptions) {
     }
 
     // Legacy: (target, propertyKey, descriptor)
-    warnLegacy("Cached");
     const propertyKey = args[1] as string;
     const descriptor = args[2] as PropertyDescriptor;
     const originalMethod = descriptor.value;

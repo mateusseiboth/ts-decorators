@@ -12,7 +12,6 @@
  */
 
 import "reflect-metadata";
-import { isDecoratorContext, warnLegacy } from "./_proxy";
 
 const DI_SCOPE_KEY = "di:scope";
 const DI_SCOPE_KEYFN = "di:scopeKeyFn";
@@ -20,10 +19,7 @@ const DI_SCOPE_KEYFN = "di:scopeKeyFn";
 export type DiScope = "singleton" | "scoped" | "transient";
 
 function defineScope(name: string, scope: DiScope, keyFn?: () => string) {
-  return function (target: any, context?: ClassDecoratorContext): any {
-    if (!context || !isDecoratorContext(context)) {
-      warnLegacy(name);
-    }
+  return function (target: any, _context?: ClassDecoratorContext): any {
     Reflect.defineMetadata(DI_SCOPE_KEY, scope, target);
     if (keyFn) Reflect.defineMetadata(DI_SCOPE_KEYFN, keyFn, target);
     return target;

@@ -20,7 +20,7 @@ import "reflect-metadata";
 import { requirePerTenant, type PerTenantOptions } from "../queue/perTenant";
 import { registerProcessor, startProcessors } from "../queue/registry";
 import { appendMetadataItem } from "./_metadataList";
-import { isDecoratorContext, warnLegacy } from "./_proxy";
+import { isDecoratorContext } from "./_proxy";
 
 const PROCESSOR_KEY = "queue:processors";
 const _started = new WeakSet<object>();
@@ -120,7 +120,6 @@ export function Processor(queueName: string, options?: ProcessorOptions) {
     }
 
     // Legacy: (target, propertyKey, descriptor)
-    warnLegacy("Processor");
     const target = args[0];
     const propertyKey = args[1] as string;
     appendMetadataItem<ProcessorMeta>(PROCESSOR_KEY, target.constructor, {

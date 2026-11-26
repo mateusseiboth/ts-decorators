@@ -1,6 +1,6 @@
 import { ClientError } from "../errors/commons";
 import { logger } from "../functions/logger";
-import { isDecoratorContext, warnLegacy } from "./_proxy";
+import { isDecoratorContext } from "./_proxy";
 
 // Registry central
 const registry = {
@@ -38,7 +38,6 @@ function registerModel(target: any): void {
  */
 export function ModelTagged(target: any, context?: ClassDecoratorContext) {
   const isTc39 = context !== undefined && isDecoratorContext(context);
-  if (!isTc39) warnLegacy("ModelTagged");
   if (isTc39 && typeof target.tag === "undefined") {
     context.addInitializer(function (this: unknown) {
       registerModel(this ?? target);
@@ -80,10 +79,7 @@ export function getOptimisticLock(dao: unknown): OptimisticLock | undefined {
 
 // Decorator para DAOs
 export function DAOFor(modelTag: any, options: DAOForOptions = {}) {
-  return function (target: any, context?: ClassDecoratorContext) {
-    if (!context || !isDecoratorContext(context)) {
-      warnLegacy("DAOFor");
-    }
+  return function (target: any, _context?: ClassDecoratorContext) {
     const Model = registry.models.get(modelTag);
     if (!Model) {
       throw new ClientError(

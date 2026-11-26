@@ -26,7 +26,7 @@ describe("Validate / WithValidation", () => {
         }
       }
       WithValidation(C);
-      expect(warnCap.warnings.some((w) => w.includes("WithValidation"))).toBe(true);
+      expect(warnCap.warnings.some((w) => w.includes("LEGACY"))).toBe(false);
     });
 
     test("cria instância normalmente sem schemas", () => {

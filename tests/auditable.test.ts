@@ -31,7 +31,7 @@ describe("Auditable", () => {
         }
       }
       const D = Auditable(Ctrl as any);
-      expect(warnCap.warnings.some((w) => w.includes("Auditable"))).toBe(true);
+      expect(warnCap.warnings.some((w) => w.includes("LEGACY"))).toBe(false);
 
       const i = new D();
       await i.create(

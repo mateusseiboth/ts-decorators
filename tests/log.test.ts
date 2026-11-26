@@ -24,7 +24,7 @@ describe("logDecorator", () => {
         }
       }
       logDecorator(C as any);
-      expect(warnCap.warnings.some((w) => w.includes("logDecorator"))).toBe(true);
+      expect(warnCap.warnings.some((w) => w.includes("LEGACY"))).toBe(false);
     });
 
     test("mantém retorno do método", () => {

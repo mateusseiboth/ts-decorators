@@ -44,7 +44,7 @@ describe("TransactionalClass", () => {
         }
       }
       TransactionalClass(C as any);
-      expect(warnCap.warnings.some((w) => w.includes("TransactionalClass"))).toBe(true);
+      expect(warnCap.warnings.some((w) => w.includes("LEGACY"))).toBe(false);
     });
 
     test("cria e libera savepoint em sucesso", async () => {

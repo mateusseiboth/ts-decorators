@@ -10,7 +10,7 @@
 
 import "reflect-metadata";
 import { appendMetadataItem } from "./_metadataList";
-import { isDecoratorContext, warnLegacy } from "./_proxy";
+import { isDecoratorContext } from "./_proxy";
 
 export interface MethodMeta<O> {
   methodName: string;
@@ -95,7 +95,6 @@ export function makeInstanceMethodDecorator<O>(
     }
 
     // Legacy: (target, propertyKey, descriptor)
-    warnLegacy(name);
     registry.addMeta(args[0].constructor, { methodName: String(args[1]), options });
     return args[2];
   };

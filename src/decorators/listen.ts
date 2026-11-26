@@ -15,7 +15,7 @@
 import "reflect-metadata";
 import { eventBus, type EventHandler } from "../events/eventBus";
 import { appendMetadataItem } from "./_metadataList";
-import { isDecoratorContext, warnLegacy } from "./_proxy";
+import { isDecoratorContext } from "./_proxy";
 
 const LISTENERS_KEY = "events:listeners";
 
@@ -90,7 +90,6 @@ export function Listen(event: string) {
     }
 
     // Legacy: (target, propertyKey, descriptor)
-    warnLegacy("Listen");
     const target = args[0];
     const propertyKey = args[1] as string;
     addListenerMeta(target.constructor, { event, methodName: propertyKey });

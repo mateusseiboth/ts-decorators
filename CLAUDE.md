@@ -9,6 +9,8 @@ recebeu o porte dela na 2.0 (veja `CHANGELOG.md`); não depende de nenhum pacote
 
 - **Sem alias de import no `src/`.** No projeto que consome, um alias apontaria para o `src` DELE.
   Todo import interno é relativo.
+- **Modo legado de decorators** (`experimentalDecorators` + `emitDecoratorMetadata`): nada de
+  versão TC39 nova nem aviso "LEGACY".
 - **Sem `enum`.** O próprio lint roda a regra `ts-decorators/no-enum` (`src/oxlint/no-enum.mjs`).
 - **Portão**, nesta ordem: `bun run format:check`, `bun run lint`, `bun run typecheck`, `bun test`.
 - **Versão nova** entra no topo do `CHANGELOG.md`, no mesmo commit que sobe o `package.json`.

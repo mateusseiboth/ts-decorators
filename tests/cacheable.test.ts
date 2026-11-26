@@ -42,7 +42,7 @@ describe("Cacheable", () => {
         }
       }
       Cacheable()(C as any);
-      expect(warnCap.warnings.some((w) => w.includes("Cacheable"))).toBe(true);
+      expect(warnCap.warnings.some((w) => w.includes("LEGACY"))).toBe(false);
     });
 
     test("MISS na 1ª chamada, HIT na 2ª", async () => {
@@ -108,7 +108,7 @@ describe("Cacheable", () => {
       }
       const d = Object.getOwnPropertyDescriptor(S.prototype, "find")!;
       CacheMethod({ ttl: 5000 })(S.prototype, "find", d);
-      expect(warnCap.warnings.some((w) => w.includes("CacheMethod"))).toBe(true);
+      expect(warnCap.warnings.some((w) => w.includes("LEGACY"))).toBe(false);
     });
   });
 

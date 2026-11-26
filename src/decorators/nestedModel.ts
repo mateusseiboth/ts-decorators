@@ -1,6 +1,6 @@
 import "reflect-metadata";
 import { logger } from "../functions/logger";
-import { isDecoratorContext, warnLegacy } from "./_proxy";
+import { isDecoratorContext } from "./_proxy";
 import { bumpMetadataVersion, createMetadataCache, freezeIfEnabled } from "./metadata";
 
 /** Metadados de um campo aninhado (relação para outro Model). */
@@ -99,7 +99,6 @@ export function NestedModel(modelClass: Function) {
     }
 
     // Legacy property decorator: (target, propertyKey)
-    warnLegacy("NestedModel");
     const [target, propertyKey] = args;
     registerNestedModelLegacy(target, propertyKey as string, modelClass, false);
   };

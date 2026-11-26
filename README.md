@@ -31,7 +31,8 @@ bun add handlebars playwright sharp pdf-lib
 
 ### tsconfig.json
 
-**Legacy decorators (recommended):**
+**Legacy decorators (o modo do pacote):** o `@Injectable` depende do `design:paramtypes`, que só o
+modo legado emite. Nenhum decorator avisa "LEGACY" no boot.
 
 ```json
 {
@@ -2171,7 +2172,6 @@ c.get(Agenda);
 
 - `@Get("/:id", { doc: { summary: "Aluno pelo id", tags: ["alunos"] } })`: o `doc` é livre (zod,
   JSON Schema...), o pacote só guarda.
-- Projeto que usa o modo legado de propósito: `setLegacyWarnings(false)` no boot.
 - `RouteBuilder` pode ser estendido: `router` e `defaultMiddlewares` são `protected` e o `extend`
   devolve a subclasse.
 
@@ -2276,14 +2276,14 @@ padrão.
 import { setLogLevel, getLogLevel, logger } from "@mateusseiboth/ts-decorators";
 
 setLogLevel("debug");   // liga o diagnóstico dos decorators
-setLogLevel("silent");  // cala tudo, inclusive os avisos de decorator legacy
+setLogLevel("silent");  // cala tudo
 ```
 
 | Nível    | Mostra                                                        |
 | -------- | ------------------------------------------------------------- |
 | `silent` | nada                                                          |
 | `error`  | falhas                                                        |
-| `warn`   | + avisos (decorator legacy, `@Transient` com `@Listen`)        |
+| `warn`   | + avisos (`@Transient` com `@Listen`, configuração)            |
 | `info`   | **padrão** — + `[ROUTE] ...` e o `this.log()` do `@logDecorator` |
 | `debug`  | + cache hits, savepoints, registro de model, RLS por transação |
 
@@ -2982,16 +2982,15 @@ All changes must pass the existing test suite. New features must include tests.
 ### Guidelines
 
 - **One concern per decorator/function.** Keep decorators focused on a single responsibility.
-- **Support both legacy and TC39 Stage 3 decorator syntax.** Use the `isDecoratorContext` helper from `src/decorators/_proxy.ts` to branch between the two.
-- **Emit a `warnLegacy("DecoratorName")` warning** when a decorator is used in legacy mode so users are aware.
-- **Do not add runtime dependencies.** All caching, rate limiting and audit logic is intentionally dependency-free.
+- **Modo legado.** O pacote usa `experimentalDecorators` + `emitDecoratorMetadata`; decorator novo é escrito para o legado, sem versão TC39 e sem aviso de modo.
+- **Do not add runtime dependencies.** Only the `./observability` subpath depends on the OpenTelemetry SDK; the main entry point loads `@opentelemetry/api` lazily, as an optional peer.
 - **Tests use `bun test`.** Place test files in `tests/` with the `.test.ts` suffix. Reuse the mock helpers in `tests/_helpers.ts` and the model fixtures in `tests/_models.ts`.
 - **Do not break the metadata WeakMap contract.** `@InitFields` is the initialiser for the `CLASS_FIELDS` WeakMap — never read from `getFieldTypes` in a decorator that runs before `@InitFields`.
 
 ### Adding a new decorator
 
 1. Create `src/decorators/myDecorator.ts`
-2. Implement both legacy and TC39 branches using `isDecoratorContext`
+2. Implement it for the legacy mode (`experimentalDecorators`)
 3. Export it from `index.ts`
 4. Add tests in `tests/myDecorator.test.ts`
 5. Document it in this README under the [Decorators](#decorators) section

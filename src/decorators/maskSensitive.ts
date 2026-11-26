@@ -15,7 +15,7 @@
 import "reflect-metadata";
 import { appendMetadataItem } from "./_metadataList";
 import { makeMethodDecorator } from "./_method";
-import { isDecoratorContext, warnLegacy } from "./_proxy";
+import { isDecoratorContext } from "./_proxy";
 import { getFieldOptions } from "./initFields";
 import { bumpMetadataVersion, createMetadataCache } from "./metadata";
 
@@ -122,7 +122,6 @@ export function MaskSensitive(options?: MaskOptions) {
 
     // Legacy property: (target, propertyKey) — descriptor é undefined em propriedade
     if (args.length >= 2 && args[2] === undefined) {
-      warnLegacy("MaskSensitive");
       const target = args[0];
       const propertyKey = args[1] as string;
       appendMetadataItem<FieldMeta>(MASK_FIELDS_KEY, target.constructor, {
@@ -134,7 +133,6 @@ export function MaskSensitive(options?: MaskOptions) {
     }
 
     // Legacy method: (target, propertyKey, descriptor)
-    warnLegacy("MaskSensitive");
     const descriptor = args[2] as PropertyDescriptor;
     const original = descriptor.value;
     descriptor.value = async function (this: any, ...callArgs: any[]) {

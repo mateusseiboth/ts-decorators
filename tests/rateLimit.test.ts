@@ -36,7 +36,7 @@ describe("RateLimit", () => {
         }
       }
       RateLimit({ maxRequests: 5 })(C as any);
-      expect(warnCap.warnings.some((w) => w.includes("RateLimit"))).toBe(true);
+      expect(warnCap.warnings.some((w) => w.includes("LEGACY"))).toBe(false);
     });
 
     test("permite até maxRequests e bloqueia depois", async () => {
@@ -95,7 +95,7 @@ describe("RateLimit", () => {
       }
       const d = Object.getOwnPropertyDescriptor(S.prototype, "find")!;
       RateLimitMethod({ maxRequests: 3 })(S.prototype, "find", d);
-      expect(warnCap.warnings.some((w) => w.includes("RateLimitMethod"))).toBe(true);
+      expect(warnCap.warnings.some((w) => w.includes("LEGACY"))).toBe(false);
     });
 
     test("bloqueia após maxRequests", async () => {

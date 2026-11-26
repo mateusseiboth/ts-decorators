@@ -1,8 +1,6 @@
 import "reflect-metadata";
 import type { ZodSchema } from "zod";
 
-import { isDecoratorContext, warnLegacy } from "./_proxy";
-
 export interface IWithValidation<T = unknown> {
   schema?: ZodSchema<T>;
 
@@ -20,20 +18,14 @@ export function Validate(_schema: ZodSchema) {
     _target: any,
     _propertyKey: string | symbol | undefined,
     _parameterIndex: number,
-  ) {
-    warnLegacy("Validate");
-  };
+  ) {};
 }
 
 function createValidationDecorator<TSchema = unknown>(schema?: ZodSchema<TSchema>) {
   return function <T extends new (...args: any[]) => {}>(
     OriginalConstructor: T,
-    context?: ClassDecoratorContext,
+    _context?: ClassDecoratorContext,
   ) {
-    if (!context || !isDecoratorContext(context)) {
-      warnLegacy("WithValidation");
-    }
-
     return class extends OriginalConstructor implements IWithValidation<TSchema> {
       static schema = schema;
 
