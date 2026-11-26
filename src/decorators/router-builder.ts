@@ -3,10 +3,18 @@ import type { RequestHandler } from "express";
 
 import { getColumns } from "../middlwares/getColumns";
 import { getOrderBy } from "../middlwares/getOrderBy";
-import { getPaginate } from "../middlwares/getPaginate";
+import { createPaginate, type PaginateMiddlewareOptions } from "../middlwares/getPaginate";
 import { getWhere } from "../middlwares/getWhere";
 
 type HttpHandler = RequestHandler;
+
+export interface WithPrismaOptionsConfig {
+  /** Paginação desta rota. Vence o `static paginate` do model. */
+  paginate?: PaginateMiddlewareOptions;
+}
+
+/** O model que declara a própria paginação: `static paginate = { required: true, maxOffset: 100 }`. */
+type ModelComPaginacao = { paginate?: PaginateMiddlewareOptions };
 
 export class RouteBuilder {
   constructor(
@@ -58,7 +66,11 @@ export class RouteBuilder {
     return new RouteBuilder(this.router, [...this.defaultMiddlewares, ...middlewares]);
   }
 
-  withPrismaOptions<T extends { tag: number; getModel: () => any }>(model: T) {
+  withPrismaOptions<T extends { tag: number; getModel: () => any }>(
+    model: T,
+    config: WithPrismaOptionsConfig = {},
+  ) {
+    const paginate = createPaginate(config.paginate ?? (model as ModelComPaginacao).paginate);
     return this.extend([
       (req, res, next) => getOrderBy<T>(req, res, next, model),
 
@@ -66,7 +78,7 @@ export class RouteBuilder {
 
       (req, res, next) => getColumns<T>(req, res, next, model),
 
-      getPaginate,
+      paginate,
     ]);
   }
 }

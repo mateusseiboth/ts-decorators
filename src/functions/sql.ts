@@ -5,13 +5,26 @@ import {
   type CompanyId,
   type CompanyIdInjector,
 } from "../handlers/companyId";
-import { getHandlerContext } from "../handlers/context";
+import { getTenantScope } from "../handlers/context";
 import { decodeRowsForCollection, isTemporal, temporalToIso } from "../prisma8/temporal";
 import { stableStringify } from "./object";
+
+/** Agregado sobre o filtro INTEIRO (não sobre a página): `summary` do `executePrismaQuery`. */
+export interface ResumoDaListagem {
+  count: number;
+  sum: Record<string, unknown>;
+}
+
+/** O que somar além da contagem: `{ sum: ["valor"] }`. */
+export interface SummaryOptions {
+  sum?: readonly string[];
+}
 
 export interface IResponsePaginate<T> {
   data: {
     data: T[];
+    /** Só com `summary` nas opções. */
+    resumo?: ResumoDaListagem;
     /** Os nomes são o contrato antigo que as telas leem: `totalPage` é o total de REGISTROS e
      * `total` é a quantidade de PÁGINAS. */
     paginacao: {
@@ -147,9 +160,7 @@ const modelNameOf = (delegate: unknown): string => prismaModelNameOf(delegate) ?
  * aparecer no `where`, então sem isso o total de um município seria servido a outro.
  */
 function countCacheKey(model: string, where: unknown): string {
-  const ctx = getHandlerContext();
-  const entity = ctx?.entity ?? 0;
-  return `${COUNT_CACHE_PREFIX}|${model}|ent:${entity}|${stableStringify(where)}`;
+  return `${COUNT_CACHE_PREFIX}|${model}|ent:${getTenantScope()}|${stableStringify(where)}`;
 }
 
 /**
@@ -278,6 +289,40 @@ export async function paginar<T>(
   return buildPage<T>(convertBigIntValues(data) as T[], count, page, take);
 }
 
+/** Número grande do banco (bigint) vira texto, como nas linhas; o resto vai como veio. */
+const toValorDoResumo = (valor: unknown): unknown =>
+  typeof valor === "bigint" ? valor.toString() : valor;
+
+/** Junta o resumo ao envelope, quando pedido. */
+export async function withResumo<T>(
+  page: IResponsePaginate<T>,
+  summary: SummaryOptions | undefined,
+  fetch: (sum: readonly string[]) => Promise<ResumoDaListagem>,
+): Promise<IResponsePaginate<T>> {
+  if (!summary) return page;
+  const resumo = await fetch(summary.sum ?? []);
+  return { data: { ...page.data, resumo } };
+}
+
+const fetchResumoPrisma7 = async (
+  delegate: any,
+  where: unknown,
+  sum: readonly string[],
+): Promise<ResumoDaListagem> => {
+  const _sum = Object.fromEntries(sum.map((campo) => [campo, true]));
+  const result = await delegate.aggregate({
+    where,
+    _count: { _all: true },
+    ...(sum.length ? { _sum } : {}),
+  });
+  return {
+    count: Number(result?._count?._all ?? 0),
+    sum: Object.fromEntries(
+      sum.map((campo) => [campo, toValorDoResumo(result?._sum?.[campo] ?? null)]),
+    ),
+  };
+};
+
 export async function executePrismaQuery<T>(
   objectPrismaQuery: any,
   options: any & {
@@ -293,9 +338,13 @@ export async function executePrismaQuery<T>(
     deriveTotal?: boolean;
     /** Reaproveita a contagem entre páginas da mesma listagem, por N ms. */
     countTtlMs?: number;
+    /** Soma e contagem sobre o filtro inteiro, em `data.resumo`. */
+    summary?: SummaryOptions;
   },
 ): Promise<IResponsePaginate<T>> {
   applyColumnProjection(options);
+  const summary: SummaryOptions | undefined = options.summary;
+  delete options.summary;
 
   const paginateOptions: PaginateOptions = {
     skip: options.skip,
@@ -340,7 +389,9 @@ export async function executePrismaQuery<T>(
   delete options.skip;
   delete options.take;
   delete options.include;
-  return result;
+  return withResumo(result, summary, (sum) =>
+    fetchResumoPrisma7(objectPrismaQuery, options.where, sum),
+  );
 }
 
 /**

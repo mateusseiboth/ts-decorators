@@ -893,3 +893,29 @@ export type {
   RouteAccessInput,
   Roles,
 } from "./src/permissions/types";
+
+// --- Listagem: paginação obrigatória, busca, resumo e tenant por várias GUCs ---
+export { createPaginate, type PaginateMiddlewareOptions } from "./src/middlwares/getPaginate";
+export type { WithPrismaOptionsConfig } from "./src/decorators/router-builder";
+export {
+  configureDateFilter,
+  type DateFilterOptions,
+  type ModelSearch,
+} from "./src/middlwares/getWhere";
+export { withResumo, type ResumoDaListagem, type SummaryOptions } from "./src/functions/sql";
+export {
+  findTenantScope,
+  getTenantScope,
+  resetTenantScope,
+  setTenantScope,
+  type TenantScopeResolver,
+} from "./src/handlers/context";
+export {
+  applyTransactionGucs,
+  configureTenantGucs,
+  createGucsInjector,
+  resetTenantGucs,
+  type TransactionGucs,
+  type TransactionGucsResolver,
+  type TransactionGucValue,
+} from "./src/handlers/tenantGucs";

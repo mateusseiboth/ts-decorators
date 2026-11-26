@@ -29,7 +29,7 @@
 
 import { logger } from "../functions/logger";
 import { stableStringify } from "../functions/object";
-import { getHandlerContext } from "../handlers/context";
+import { findTenantScope, getHandlerContext } from "../handlers/context";
 import { matchAsync, wrapMetodosDaClasse } from "./_method";
 import { isDecoratorContext, warnLegacy } from "./_proxy";
 
@@ -121,6 +121,8 @@ function invalidateForTenant(className: string, entidade: string) {
  * explicitamente: vem do `res.locals` ou do contexto (AsyncLocalStorage).
  */
 function resolveTenant(res?: any): string {
+  const scope = findTenantScope()?.();
+  if (scope != null) return scope;
   const fromLocals = res?.locals?.entity ?? res?.locals?.entidade;
   if (fromLocals != null) return String(fromLocals);
   const ctx = getHandlerContext();

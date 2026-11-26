@@ -8,10 +8,8 @@ const registry = {
   daos: new Map(), // tag → DAO
 };
 
-export function ModelTagged(target: any, context?: ClassDecoratorContext) {
-  if (!context || !isDecoratorContext(context)) {
-    warnLegacy("ModelTagged");
-  }
+/** Registra o model pela `static tag`; tag repetida derruba o processo. */
+function registerModel(target: any): void {
   if (typeof target.tag === "undefined") {
     throw new ClientError(
       `[@mateusseiboth/ts-decorators] Model ${target.name} não possui static tag`,
@@ -32,6 +30,22 @@ export function ModelTagged(target: any, context?: ClassDecoratorContext) {
   }
 
   registry.models.set(target.tag, target);
+}
+
+/**
+ * No TC39 o decorator da classe roda ANTES dos campos estáticos: o `static tag = N` ainda não
+ * existe. Sem a tag agora, o registro espera o inicializador da classe, que roda depois deles.
+ */
+export function ModelTagged(target: any, context?: ClassDecoratorContext) {
+  const isTc39 = context !== undefined && isDecoratorContext(context);
+  if (!isTc39) warnLegacy("ModelTagged");
+  if (isTc39 && typeof target.tag === "undefined") {
+    context.addInitializer(function (this: unknown) {
+      registerModel(this ?? target);
+    });
+    return;
+  }
+  registerModel(target);
 }
 
 export interface DAOForOptions {

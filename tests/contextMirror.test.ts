@@ -40,7 +40,7 @@ describe("middlewares espelham no contexto do request", () => {
       SimpleModel,
     );
 
-    expect(res.locals.orderBy).toEqual([{ name: "asc" }]);
+    expect(res.locals.orderBy).toEqual([{ name: "asc" }, { id: "asc" }]);
     expect(ctx.orderBy).toBe(res.locals.orderBy);
   });
 

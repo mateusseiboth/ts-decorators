@@ -12,7 +12,10 @@ import {
   buildPage,
   emptyPage,
   paginar,
+  withResumo,
   type IResponsePaginate,
+  type ResumoDaListagem,
+  type SummaryOptions,
 } from "../functions/sql";
 import { applyOrderBy } from "./orderBy";
 import { applyProjection, type ProjectionOptions } from "./projection";
@@ -32,6 +35,8 @@ export interface PagedQueryOptions extends QueryOptions {
   columns?: Record<string, unknown>;
   deriveTotal?: boolean;
   countTtlMs?: number;
+  /** Soma e contagem sobre o filtro inteiro, em `data.resumo`. */
+  summary?: SummaryOptions;
 }
 
 /**
@@ -116,12 +121,40 @@ async function executeSemPaginacao<T>(
   return buildPage<T>(data, data.length, options.page, undefined);
 }
 
+type ConstrutorDeAgregado = { count(): unknown; sum(campo: string): unknown };
+
+/** `count` e as somas pedidas, sobre o filtro inteiro. */
+async function fetchResumo(
+  collection: OrmCollection,
+  where: unknown,
+  sum: readonly string[],
+): Promise<ResumoDaListagem> {
+  const result = (await applyWhere(collection, where).aggregate((a: ConstrutorDeAgregado) => ({
+    count: a.count(),
+    ...Object.fromEntries(sum.map((campo) => [campo, a.sum(campo)])),
+  }))) as Record<string, unknown>;
+  const toValor = (valor: unknown) =>
+    typeof valor === "bigint" ? valor.toString() : (valor ?? null);
+  return {
+    count: Number(result.count ?? 0),
+    sum: Object.fromEntries(sum.map((campo) => [campo, toValor(result[campo])])),
+  };
+}
+
 /**
  * Listagem paginada: ids da página (só o índice), depois as linhas por id com a projeção,
  * depois a contagem — o mesmo desenho do `executePrismaQuery`, inclusive `deriveTotal` e
  * `countTtlMs`.
  */
 export async function executeOrmQuery<T>(
+  collection: OrmCollection,
+  options: PagedQueryOptions,
+): Promise<IResponsePaginate<T>> {
+  const page = await executeOrmPage<T>(collection, options);
+  return withResumo(page, options.summary, (sum) => fetchResumo(collection, options.where, sum));
+}
+
+async function executeOrmPage<T>(
   collection: OrmCollection,
   options: PagedQueryOptions,
 ): Promise<IResponsePaginate<T>> {

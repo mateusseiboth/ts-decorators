@@ -72,6 +72,13 @@ export function getWhere<T extends object>(
     };
   }
 
+  const busca = buildBusca(req.query ?? {}, classRecord, {
+    types: fieldTypes,
+    listPaths,
+    fieldOptions,
+  });
+  if (busca) where = { ...where, AND: [...(where.AND || []), busca] };
+
   if (Object.keys(customFields).length > 0) {
     where = {
       ...where,
@@ -84,6 +91,59 @@ export function getWhere<T extends object>(
 
   publishRequestValue(res, "where", where);
   next();
+}
+
+/**
+ * Busca em várias colunas: `static search = { fields: ["nome", "cpf"], param?: "busca" }` no model.
+ * `?busca=termo` vira um OU de `contains` sem diferenciar maiúsculas. Cada coluna recebe o termo
+ * com o `normalize` dela, e a coluna em que o termo normalizado fica vazio (texto numa coluna de
+ * dígitos) sai da busca.
+ */
+export interface ModelSearch {
+  /** Parâmetro da query. Default: `busca`. */
+  param?: string;
+  /** Colunas de texto (caminho achatado, como no filtro: `aluno.nome`). */
+  fields: readonly string[];
+}
+
+interface MetaDaBusca {
+  types: Record<string, string>;
+  listPaths: Set<string>;
+  fieldOptions: Record<string, FieldOptions>;
+}
+
+const requireColunaDeBusca = (model: any, coluna: string, meta: MetaDaBusca): void => {
+  if (meta.types[coluna] === "string") return;
+  throw new TypeError(
+    `[@mateusseiboth/ts-decorators] ${model?.name}.search: "${coluna}" não é um campo de texto do model.`,
+  );
+};
+
+const buildBuscaNaColuna = (coluna: string, termo: string, meta: MetaDaBusca) => {
+  const normalizado = String(normalizeValue(termo, meta.fieldOptions[coluna]?.normalize) ?? "");
+  if (!normalizado) return null;
+  return buildNestedCondition(
+    coluna,
+    { contains: normalizado, mode: "insensitive" },
+    meta.listPaths,
+  );
+};
+
+function buildBusca(
+  query: Record<string, unknown>,
+  model: any,
+  meta: MetaDaBusca,
+): Record<string, unknown> | null {
+  const search = model?.search as ModelSearch | undefined;
+  if (!search?.fields?.length) return null;
+  const valor = query[search.param ?? "busca"];
+  const termo = (Array.isArray(valor) ? valor[0] : valor)?.toString().trim();
+  if (!termo) return null;
+  search.fields.forEach((coluna) => requireColunaDeBusca(model, coluna, meta));
+  const OR = search.fields
+    .map((coluna) => buildBuscaNaColuna(coluna, termo, meta))
+    .filter((condicao) => condicao !== null);
+  return OR.length ? { OR } : null;
 }
 
 /** A condição do campo; o valor inválido entra em `errors` e o campo fica sem condição. */
@@ -126,6 +186,58 @@ function buildNestedCondition(
   return nested;
 }
 
+export interface DateFilterOptions {
+  /**
+   * O fuso (IANA, ex.: `America/Cuiaba`) em que a data do filtro vale, lido a cada requisição (do
+   * contexto do tenant, por exemplo). `undefined` volta ao fuso do processo.
+   */
+  timeZone?: () => string | undefined;
+}
+
+let _dateFilter: DateFilterOptions = {};
+
+/** Configura o filtro de data do `getWhere` para o processo inteiro. `{}` volta ao padrão. */
+export function configureDateFilter(options: DateFilterOptions): void {
+  _dateFilter = { ...options };
+}
+
+const isTimeZoneValido = (timeZone: string): boolean => {
+  try {
+    new Intl.DateTimeFormat("en-US", { timeZone });
+    return true;
+  } catch {
+    return false;
+  }
+};
+
+const readTimeZone = (): string | undefined => {
+  const timeZone = _dateFilter.timeZone?.();
+  if (!timeZone || isTimeZoneValido(timeZone)) return timeZone;
+  throw new TypeError(
+    `[@mateusseiboth/ts-decorators] configureDateFilter: fuso "${timeZone}" desconhecido.`,
+  );
+};
+
+/** O relógio de parede de `local` (lido no fuso do processo) como instante no fuso `timeZone`. */
+const toInstanteNoFuso = (local: Date, timeZone: string): Date =>
+  new Date(
+    Temporal.PlainDateTime.from({
+      year: local.getFullYear(),
+      month: local.getMonth() + 1,
+      day: local.getDate(),
+      hour: local.getHours(),
+      minute: local.getMinutes(),
+      second: local.getSeconds(),
+      millisecond: local.getMilliseconds(),
+    }).toZonedDateTime(timeZone).epochMilliseconds,
+  );
+
+/** No fuso configurado, quando houver; senão, o instante como o processo o leu. */
+const withFuso = (local: Date): Date => {
+  const timeZone = readTimeZone();
+  return timeZone ? toInstanteNoFuso(local, timeZone) : local;
+};
+
 /** O que se sabe do campo filtrado, pelo tipo declarado no `@Field`. */
 interface TipoDoCampo {
   /** O nome do campo na query, para a mensagem de valor inválido. */
@@ -134,6 +246,8 @@ interface TipoDoCampo {
   isString: boolean;
   isBoolean: boolean;
   isDate: boolean;
+  /** `@Field("uuid")`: só aceita uuid; o valor inválido não chega ao banco. */
+  isUuid: boolean;
   /** O `normalize` do `@Field`: o filtro procura o valor como ele foi gravado. */
   normalize?: FieldNormalize;
 }
@@ -177,14 +291,27 @@ const toDate = (valor: string, campo: TipoDoCampo, borda: "inicio" | "fim"): Dat
   if (!data) {
     throw new FiltroInvalidoError(campo.key, `Informe uma data válida no filtro "${campo.key}".`);
   }
-  if (TEM_HORA.test(valor)) return data;
+  if (TEM_HORA.test(valor)) return withFuso(data);
   const noDia = new Date(data);
   if (borda === "inicio") noDia.setHours(0, 0, 0, 0);
   else noDia.setHours(23, 59, 59, 999);
-  return noDia;
+  return withFuso(noDia);
+};
+
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** Uuid de verdade, ou recusa: o Postgres responderia 22P02 e a tela receberia um 500. */
+const toUuid = (valor: string, campo: TipoDoCampo): string => {
+  const limpo = valor.trim();
+  if (UUID.test(limpo)) return limpo;
+  throw new FiltroInvalidoError(
+    campo.key,
+    `Informe um identificador válido no filtro "${campo.key}".`,
+  );
 };
 
 const toEscalar = (valor: string, campo: TipoDoCampo): unknown => {
+  if (campo.isUuid) return toUuid(valor, campo);
   if (campo.isNumeric) return toNumber(valor, campo);
   if (campo.isBoolean) return Controller.safe.Boolean(valor);
   return normalizeValue(valor, campo.normalize);
@@ -300,6 +427,7 @@ export function createWhereConditionQuery(
     isString: tipo === "string",
     isBoolean: tipo === "boolean",
     isDate: isDateLikeFieldType(tipo),
+    isUuid: tipo === "uuid",
   };
 
   const OR: any[] = [];

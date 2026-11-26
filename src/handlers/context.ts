@@ -134,3 +134,31 @@ export function publishRequestValue(res: any, key: string, value: unknown): void
   const ctx = getHandlerContext();
   if (ctx) ctx[key] = value;
 }
+
+/** Texto que separa um tenant do outro nas chaves de cache (contagem, `@Cacheable`). */
+export type TenantScopeResolver = () => string | undefined;
+
+let _tenantScope: TenantScopeResolver | null = null;
+
+/**
+ * Troca a origem do escopo do tenant. O padrão é a `entity` do contexto; com RLS por várias GUCs
+ * (conta, academia, rede...), o escopo precisa de todas, senão o total de um tenant serve a outro.
+ */
+export function setTenantScope(resolver: TenantScopeResolver): void {
+  _tenantScope = resolver;
+}
+
+/** Volta ao escopo padrão (a `entity` do contexto). */
+export function resetTenantScope(): void {
+  _tenantScope = null;
+}
+
+/** O resolvedor configurado por `setTenantScope`, ou `null` no padrão. */
+export function findTenantScope(): TenantScopeResolver | null {
+  return _tenantScope;
+}
+
+/** O escopo do tenant atual: o do `setTenantScope`, ou a `entity` do contexto (`"0"` sem ela). */
+export function getTenantScope(): string {
+  return _tenantScope?.() ?? String(getHandlerContext()?.entity ?? 0);
+}

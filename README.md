@@ -249,6 +249,65 @@ router.get("/", (req, res, next) => getOrderBy(req, res, next, StreetModel), han
 
 ---
 
+### Listagem para multi-tenant: `createPaginate`, desempate, busca, fuso, uuid, resumo e GUCs
+
+```ts
+import {
+  configureDateFilter,
+  configureTenantGucs,
+  createPaginate,
+  executePrismaQuery,
+  Field,
+  getHandlerContext,
+  InitFields,
+  makePrismaOptions,
+  ModelTagged,
+} from "@mateusseiboth/ts-decorators";
+
+// boot: RLS por várias GUCs e o fuso do tenant, lidos do contexto da requisição
+configureTenantGucs((ctx) => ({
+  "app.conta_id": ctx?.contaId,
+  "app.academia_id": ctx?.academiaId,
+  "app.rede_id": ctx?.redeId,
+  "app.is_super_admin": ctx?.superAdmin === true,
+}));
+configureDateFilter({ timeZone: () => getHandlerContext()?.academia?.timeZone });
+
+@InitFields
+@ModelTagged
+class AlunoModel {
+  static tag = 10;
+  static paginate = { required: true, defaultOffset: 20, maxOffset: 100 };
+  static search = { fields: ["nome", "cpf", "telefone"] }; // ?busca=termo
+  @Field("uuid") id!: string;
+  @Field("uuid") academia_id!: string;
+  @Field() nome!: string;
+  @Field({ type: "string", normalize: "digits" }) cpf!: string;
+}
+
+route.withPrismaOptions(AlunoModel).get("/", listar); // ou withPrismaOptions(Model, { paginate })
+const page = await executePrismaQuery(tx.aluno, {
+  ...makePrismaOptions(res),
+  summary: { sum: ["mensalidade"] }, // data.resumo = { count, sum: { mensalidade } }
+});
+```
+
+- **`createPaginate({ required, defaultOffset, maxOffset })`:** `required` pagina mesmo sem o
+  cabeçalho `paginate` (a lista nunca sai inteira); `offset` acima do `maxOffset` responde 400 em
+  `errors[{ path: "offset" }]`. A opção da rota vence o `static paginate` do model.
+- **Desempate:** o `getOrderBy` termina a ordem no `id` (ou no `static orderTieBreaker`; `false`
+  desliga). Sem desempate, registros com o mesmo valor trocam de página.
+- **`@Field("uuid")`:** valor inválido no filtro responde 400 no campo, sem chegar ao banco.
+- **Busca:** `static search` no model; cada coluna recebe o termo com o `normalize` dela, e a que
+  fica sem termo (texto numa coluna de dígitos) sai do OU.
+- **Fuso:** `configureDateFilter` faz o dia do filtro valer no fuso do tenant; sem fuso, o do
+  processo.
+- **GUCs:** `configureTenantGucs` troca o injetor do `addCompanyIdToTransaction` (`Transactional`,
+  `withTransaction`; no `@TransactionalClass`, registre `setTransactionalCompanyFn(addCompanyIdToTransaction)`)
+  e o escopo do tenant das chaves de cache (`setTenantScope`), para o total de um tenant não servir
+  a outro. `applyTransactionGucs(tx, gucs)` faz o mesmo numa transação aberta à mão. `null` limpa a
+  GUC; `undefined` fica de fora.
+
 ### `getPaginate`
 
 Reads **HTTP headers** (not query params) and populates `res.locals.paginate`.

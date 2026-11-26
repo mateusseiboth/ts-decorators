@@ -78,15 +78,15 @@ describe("Middlewares", () => {
       const next = mockNext();
       getOrderBy(req, res, next, SimpleModel);
       expect(next.called).toBe(true);
-      expect(res.locals.orderBy).toEqual([{ name: "asc" }]);
+      expect(res.locals.orderBy).toEqual([{ name: "asc" }, { id: "asc" }]);
     });
 
-    test("chama next sem setar se orderBy não está na query", () => {
+    test("sem orderBy na query, ordena só pelo id (desempate)", () => {
       const res = mockRes();
       const next = mockNext();
       getOrderBy(mockReq(), res, next, SimpleModel);
       expect(next.called).toBe(true);
-      expect(res.locals.orderBy).toBeUndefined();
+      expect(res.locals.orderBy).toEqual([{ id: "asc" }]);
     });
 
     test("ignora campo que não existe no model", () => {
@@ -94,21 +94,21 @@ describe("Middlewares", () => {
       const res = mockRes();
       const next = mockNext();
       getOrderBy(req, res, next, SimpleModel);
-      expect(res.locals.orderBy).toEqual([]);
+      expect(res.locals.orderBy).toEqual([{ id: "asc" }]);
     });
 
     test("campo de relação to-one vira o objeto aninhado do Prisma 7", () => {
       const req = mockReq({ query: { orderBy: "state.country.name", orderMethod: "desc" } });
       const res = mockRes();
       getOrderBy(req, res, mockNext(), CityFieldModel);
-      expect(res.locals.orderBy).toEqual([{ state: { country: { name: "desc" } } }]);
+      expect(res.locals.orderBy).toEqual([{ state: { country: { name: "desc" } } }, { id: "asc" }]);
     });
 
     test("campo de relação to-many é ignorado: não há UMA linha para ordenar", () => {
       const req = mockReq({ query: { orderBy: "posts.title", orderMethod: "asc" } });
       const res = mockRes();
       getOrderBy(req, res, mockNext(), UserModel);
-      expect(res.locals.orderBy).toEqual([]);
+      expect(res.locals.orderBy).toEqual([{ id: "asc" }]);
     });
   });
 

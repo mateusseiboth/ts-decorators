@@ -4,6 +4,40 @@ Da versão mais nova para a mais antiga. As entradas marcadas como **base** vier
 de que este pacote nasceu (mesma origem, linhas separadas desde julho de 2026) e chegam aqui
 juntas na 2.0.0-rc.1. A versão entre parênteses é a da base, para quem compara as duas linhas.
 
+## 2.0.0-rc.35 (2026-11-26)
+
+Listagem para multi-tenant com RLS por várias GUCs.
+
+### Quebra compatibilidade
+
+- **O id desempata a ordem.** O `getOrderBy` acrescenta `{ id: "asc" }` ao fim da ordem pedida e,
+  sem ordem na query, ordena por `id` (antes não publicava `orderBy`). Vale para model que tem o
+  campo `id`; `static orderTieBreaker = "coluna"` troca a coluna e `false` desliga.
+
+### Novo
+
+- `createPaginate({ required, defaultOffset, maxOffset })`: paginação obrigatória (a lista não
+  sai inteira sem o cabeçalho), padrão e teto configuráveis; `offset` acima do teto responde 400
+  em `errors[{ path: "offset" }]`. Por model (`static paginate = {...}`) ou por rota
+  (`withPrismaOptions(Model, { paginate })`). O `getPaginate` continua igual.
+- `@ModelTagged` no TC39 enxerga o `static tag = N`: sem a tag na hora do decorator, o registro
+  espera o inicializador da classe.
+- `configureDateFilter({ timeZone: () => fuso })`: o dia do filtro de data do `getWhere` vale no
+  fuso informado (o da academia, pelo contexto). Data com hora é o instante nesse fuso.
+- `@Field("uuid")`: valor que não é uuid no filtro responde 400 no campo, em vez do erro 22P02 do
+  Postgres; `contains` em uuid vira igualdade.
+- Busca em várias colunas: `static search = { fields: ["nome", "cpf"], param?: "busca" }` no model.
+  `?busca=termo` vira um OU de `contains` sem diferenciar maiúsculas, com o `normalize` de cada
+  coluna.
+- `summary: { sum: ["valor"] }` no `executePrismaQuery` e no `executeOrmQuery`: `data.resumo` com
+  `count` e as somas sobre o filtro inteiro, não sobre a página.
+- `setTenantScope(fn)`: o escopo do tenant nas chaves do cache de contagem (`countTtlMs`) e do
+  `@Cacheable`. O padrão continua a `entity` do contexto.
+- `applyTransactionGucs(tx, gucs)`, `createGucsInjector` e `configureTenantGucs(resolve)`: RLS por
+  várias GUCs por requisição (`app.conta_id`, `app.academia_id`...), nomes e valores
+  parametrizados num comando só, no Prisma 7 e no 8. `configureTenantGucs` liga o injetor das
+  transações e o escopo do tenant juntos.
+
 ## 2.0.0-rc.34 (2026-11-26)
 
 ### Paginação, filtro e camada de dados
