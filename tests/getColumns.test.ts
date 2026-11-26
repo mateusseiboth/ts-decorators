@@ -60,13 +60,15 @@ describe("getColumns", () => {
   });
 
   test("id entra por padrão e pode ser desligado via always", () => {
-    const comId = mockRes();
-    getColumns(mockReq({ query: { fields: "name" } }), comId, mockNext(), RuaModel);
-    expect(comId.locals.columns).toEqual({ id: true, name: true });
+    const withId = mockRes();
+    getColumns(mockReq({ query: { fields: "name" } }), withId, mockNext(), RuaModel);
+    expect(withId.locals.columns).toEqual({ id: true, name: true });
 
-    const semId = mockRes();
-    getColumns(mockReq({ query: { fields: "name" } }), semId, mockNext(), RuaModel, { always: [] });
-    expect(semId.locals.columns).toEqual({ name: true });
+    const withoutId = mockRes();
+    getColumns(mockReq({ query: { fields: "name" } }), withoutId, mockNext(), RuaModel, {
+      always: [],
+    });
+    expect(withoutId.locals.columns).toEqual({ name: true });
   });
 
   test("aceita separador ; e valores repetidos na query", () => {

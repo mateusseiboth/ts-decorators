@@ -8,6 +8,8 @@
  */
 import type HandlebarsNS from "handlebars";
 
+import { formatExtenso } from "./extenso";
+
 type HandlebarsEnv = typeof HandlebarsNS;
 
 /**
@@ -62,6 +64,38 @@ function compare(a: unknown, operator: string, b: unknown): boolean {
     default:
       throw new Error(`Operador desconhecido em ifCond: "${operator}"`);
   }
+}
+
+/** Máscara por quantidade de dígitos: 11 é CPF, 14 é CNPJ. */
+const MASCARAS_DOCUMENTO: Readonly<Record<number, readonly [RegExp, string]>> = {
+  11: [/^(\d{3})(\d{3})(\d{3})(\d{2})$/, "$1.$2.$3-$4"],
+  14: [/^(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})$/, "$1.$2.$3/$4-$5"],
+};
+
+/** CPF ou CNPJ com máscara. O que não for nenhum dos dois sai como veio. */
+function formatCpfCnpj(value: unknown): string {
+  const texto = toText(value);
+  const digitos = texto.replace(/\D/g, "");
+  const mascara = MASCARAS_DOCUMENTO[digitos.length];
+  return mascara ? digitos.replace(mascara[0], mascara[1]) : texto;
+}
+
+interface GrupoDaLista {
+  key: unknown;
+  items: unknown[];
+  count: number;
+}
+
+/** Agrupa pelo valor no caminho, na ordem em que cada valor aparece pela primeira vez. */
+function groupItems(list: readonly unknown[], path: string): GrupoDaLista[] {
+  const grupos = new Map<unknown, unknown[]>();
+  for (const item of list) {
+    const key = resolvePath(item, path);
+    const items = grupos.get(key) ?? [];
+    items.push(item);
+    grupos.set(key, items);
+  }
+  return [...grupos].map(([key, items]) => ({ key, items, count: items.length }));
 }
 
 function toDate(value: unknown): Date | null {
@@ -143,7 +177,12 @@ export function registerDefaultReportHelpers(hbs: HandlebarsEnv): void {
     return numbers.length ? Math.max(...numbers) : 0;
   });
 
-  hbs.registerHelper("count", (list: unknown) => (Array.isArray(list) ? list.length : 0));
+  // `{{count}}` sem lista lê o campo count do contexto: é o total do grupo dentro do groupBy,
+  // que o helper esconderia (helper vence campo de mesmo nome no Handlebars).
+  hbs.registerHelper("count", function (this: unknown, ...args: unknown[]) {
+    if (args.length === 1) return resolvePath(this, "count") ?? 0;
+    return Array.isArray(args[0]) ? args[0].length : 0;
+  });
 
   hbs.registerHelper("math", (a: unknown, operator: unknown, b: unknown) => {
     const left = Number(a) || 0;
@@ -177,6 +216,31 @@ export function registerDefaultReportHelpers(hbs: HandlebarsEnv): void {
     return values.find((value) => value != null && value !== "") ?? "";
   });
   hbs.registerHelper("index1", (index: unknown) => Number(index) + 1);
+
+  hbs.registerHelper("formatCpfCnpj", (value: unknown) => formatCpfCnpj(value));
+
+  hbs.registerHelper("extenso", (value: unknown) =>
+    value == null || value === "" ? "" : formatExtenso(Number(value)),
+  );
+
+  hbs.registerHelper("groupBy", function (this: unknown, ...args: unknown[]) {
+    const options = args[args.length - 1] as HandlebarsNS.HelperOptions;
+    const [list, path] = args;
+    const grupos = Array.isArray(list)
+      ? groupItems(list, typeof path === "string" ? path : "")
+      : [];
+    if (!grupos.length) return options.inverse(this);
+
+    return grupos
+      .map((grupo, index) => {
+        const data = hbs.createFrame(options.data) as Record<string, unknown>;
+        data.index = index;
+        data.first = index === 0;
+        data.last = index === grupos.length - 1;
+        return options.fn(grupo, { data });
+      })
+      .join("");
+  });
 }
 
 export interface ReportHelperDoc {
@@ -285,6 +349,24 @@ export const REPORT_HELPER_DOCS: ReportHelperDoc[] = [
     description: "Número da linha começando em 1 (dentro de each)",
     snippet: "{{index1 @index}}",
     category: "calculo",
+  },
+  {
+    name: "formatCpfCnpj",
+    description: "CPF ou CNPJ com máscara (123.456.789-01)",
+    snippet: "{{formatCpfCnpj documento}}",
+    category: "formato",
+  },
+  {
+    name: "extenso",
+    description: "Valor em reais por extenso (cento e um reais)",
+    snippet: "{{extenso valor}}",
+    category: "formato",
+  },
+  {
+    name: "groupBy",
+    description: "Repete o conteúdo para cada grupo da lista (key, items e count)",
+    snippet: '{{#groupBy itens "categoria"}}{{key}}: {{count}}{{else}}Sem itens{{/groupBy}}',
+    category: "logica",
   },
   {
     name: "ifCond",

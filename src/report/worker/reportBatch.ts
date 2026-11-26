@@ -16,11 +16,15 @@ function normalizeWeight(value: unknown): number {
  * Planeja os lotes sem copiar nem reter subarrays dos registros. O limite é por
  * peso de renderização (parcelas/páginas, quando o relatório informa esse peso),
  * e não apenas pela quantidade de linhas consultadas.
+ *
+ * `mustCutAfter(index)` força a parte a terminar depois da linha `index`, além do
+ * corte por peso: é onde um PDF anexado `after-group` entra (ver pdfAttachments.ts).
  */
 export function planReportBatches(
   rows: readonly any[],
   maxWeight: number,
   getWeight: ReportBatchWeight = () => 1,
+  mustCutAfter: (index: number) => boolean = () => false,
 ): ReportBatchRange[] {
   const limit = normalizeWeight(maxWeight);
   const ranges: ReportBatchRange[] = [];
@@ -37,6 +41,12 @@ export function planReportBatches(
     }
 
     currentWeight += rowWeight;
+
+    if (index < rows.length - 1 && mustCutAfter(index)) {
+      ranges.push({ start, end: index + 1, weight: currentWeight });
+      start = index + 1;
+      currentWeight = 0;
+    }
   }
 
   if (start < rows.length) {

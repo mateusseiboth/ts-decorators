@@ -1,7 +1,8 @@
 import { Worker } from "worker_threads";
 
 import { Semaphore } from "../../concurrency/Semaphore";
-import type { ReportProgress } from "../types";
+import type { ReportPageFormat, ReportProgress } from "../types";
+import type { ReportPdfAttachmentPlan } from "./pdfAttachments";
 
 /** Payload plano enviado ao pdf.worker (caminhos ABSOLUTOS, sem funções). */
 export interface ReportWorkerPayload {
@@ -16,6 +17,8 @@ export interface ReportWorkerPayload {
   outputDir: string;
   templateSource?: string;
   viewSetupModule?: string;
+  pageFormat?: ReportPageFormat;
+  preferCSSPageSize?: boolean;
   /**
    * Streaming de dados: quando presente, o main já fatiou as linhas em arquivos de página
    * (`<jobId>.page<N>.json`) no disco e NÃO enviou `data` (evita o postMessage de GBs). O worker
@@ -24,6 +27,8 @@ export interface ReportWorkerPayload {
   pageFiles?: string[];
   /** Total geral pré-calculado pelo main (computeTotals) — injetado na última parte (Opção B). */
   totals?: any;
+  /** Em streaming: onde entra cada PDF anexado (`getPdfAttachments` da view), já planejado no main. */
+  attachmentPlan?: ReportPdfAttachmentPlan;
 }
 
 interface PendingJob {

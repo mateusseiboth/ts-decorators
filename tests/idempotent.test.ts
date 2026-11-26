@@ -3,18 +3,54 @@ import { describe, expect, test } from "bun:test";
 import { idempotencyMiddleware } from "../src/middlwares/idempotent";
 import { mockNext, mockReq, mockRes } from "./_helpers";
 
-function reqWith(headers: Record<string, string>): any {
-  const r = mockReq({ headers });
+interface Pedido {
+  method?: string;
+  url?: string;
+  body?: unknown;
+}
+
+/** Escrita por padrão: é nela que o middleware age. */
+function reqWith(headers: Record<string, string>, pedido: Pedido = {}): any {
+  const url = pedido.url ?? "/empenhos";
+  const r = mockReq({
+    headers,
+    method: pedido.method ?? "POST",
+    originalUrl: url,
+    url,
+    body: pedido.body,
+  });
   r.header = (name: string) => headers[name.toLowerCase()];
   return r;
 }
 
 describe("idempotencyMiddleware", () => {
-  test("400 quando falta a chave", async () => {
+  test("400 quando falta a chave, com mensagem em português e código", async () => {
     const mw = idempotencyMiddleware();
     const res = mockRes();
-    await mw(reqWith({}), res, mockNext());
+    const next = mockNext();
+    await mw(reqWith({}), res, next);
     expect(res.statusCode).toBe(400);
+    expect(res._body).toEqual({
+      message: "Não foi possível identificar o envio. Atualize a página e tente de novo.",
+      code: "IDEMPOTENCY_KEY_REQUIRED",
+    });
+    expect(next.called).toBe(false);
+  });
+
+  test("aceita o cabeçalho Idempotency-Key (padrão IETF)", async () => {
+    const mw = idempotencyMiddleware({ identify: (r: any) => r.header("authorization") });
+    const key = "key-ietf-" + Math.random();
+
+    const res1 = mockRes();
+    await mw(reqWith({ "idempotency-key": key, authorization: "tokenA" }), res1, mockNext());
+    res1.status(201).json({ id: 7 });
+
+    const res2 = mockRes();
+    const next2 = mockNext();
+    await mw(reqWith({ "idempotency-key": key, authorization: "tokenA" }), res2, next2);
+    expect(next2.called).toBe(false);
+    expect(res2.statusCode).toBe(201);
+    expect(res2._body).toEqual({ id: 7 });
   });
 
   test("mesmo dono: reproduz a resposta cacheada", async () => {
@@ -49,7 +85,147 @@ describe("idempotencyMiddleware", () => {
     const resB = mockRes();
     await mw(reqB, resB, mockNext());
     expect(resB.statusCode).toBe(409);
-    expect(resB._body).not.toEqual({ secret: "de A" });
+    expect(resB._body).toEqual({
+      message: "Este envio pertence a outro usuário. Atualize a página e tente de novo.",
+      code: "IDEMPOTENCY_KEY_CONFLICT",
+    });
+  });
+
+  describe("impressão digital da requisição", () => {
+    const mw = idempotencyMiddleware({ identify: (r: any) => r.header("authorization") });
+    const DIFERENTE = {
+      message: "Este envio já foi feito com outros dados. Atualize a página e tente de novo.",
+      code: "IDEMPOTENCY_KEY_REUSED",
+    };
+
+    async function sendPrimeiro(key: string, pedido: Pedido) {
+      const res = mockRes();
+      await mw(
+        reqWith({ "x-idempotency-key": key, authorization: "tokenA" }, pedido),
+        res,
+        mockNext(),
+      );
+      res.status(201).json({ id: 1 });
+    }
+
+    test("mesma chave e mesmo corpo, em outra ordem de campos: reproduz", async () => {
+      const key = "key-fp-igual-" + Math.random();
+      await sendPrimeiro(key, { body: { valor: 10, nome: "A", itens: [{ a: 1, b: 2 }] } });
+
+      const res = mockRes();
+      const next = mockNext();
+      await mw(
+        reqWith(
+          { "x-idempotency-key": key, authorization: "tokenA" },
+          { body: { itens: [{ b: 2, a: 1 }], nome: "A", valor: 10 } },
+        ),
+        res,
+        next,
+      );
+      expect(next.called).toBe(false);
+      expect(res._body).toEqual({ id: 1 });
+    });
+
+    test("mesma chave com corpo diferente: 422 e a rota não roda", async () => {
+      const key = "key-fp-corpo-" + Math.random();
+      await sendPrimeiro(key, { body: { valor: 10 } });
+
+      const res = mockRes();
+      const next = mockNext();
+      await mw(
+        reqWith({ "x-idempotency-key": key, authorization: "tokenA" }, { body: { valor: 99 } }),
+        res,
+        next,
+      );
+      expect(next.called).toBe(false);
+      expect(res.statusCode).toBe(422);
+      expect(res._body).toEqual(DIFERENTE);
+    });
+
+    test("mesma chave em outro caminho ou outro método: 422", async () => {
+      const key = "key-fp-rota-" + Math.random();
+      await sendPrimeiro(key, { body: { valor: 10 } });
+
+      const outraRota = mockRes();
+      await mw(
+        reqWith(
+          { "x-idempotency-key": key, authorization: "tokenA" },
+          { url: "/parcelas", body: { valor: 10 } },
+        ),
+        outraRota,
+        mockNext(),
+      );
+      expect(outraRota.statusCode).toBe(422);
+
+      const outroMetodo = mockRes();
+      await mw(
+        reqWith(
+          { "x-idempotency-key": key, authorization: "tokenA" },
+          { method: "PUT", body: { valor: 10 } },
+        ),
+        outroMetodo,
+        mockNext(),
+      );
+      expect(outroMetodo.statusCode).toBe(422);
+    });
+  });
+
+  describe("mode e methods: ligar uma vez para todas as escritas", () => {
+    test("mode optional: sem chave a requisição passa sem idempotência", async () => {
+      const mw = idempotencyMiddleware({ mode: "optional" });
+      const res = mockRes();
+      const next = mockNext();
+      await mw(reqWith({}), res, next);
+      expect(next.called).toBe(true);
+      expect(res._body).toBeUndefined();
+    });
+
+    test("mode optional com chave continua reproduzindo", async () => {
+      const mw = idempotencyMiddleware({ mode: "optional", identify: () => "dono" });
+      const key = "key-opcional-" + Math.random();
+      const res1 = mockRes();
+      await mw(reqWith({ "idempotency-key": key }), res1, mockNext());
+      res1.status(201).json({ id: 3 });
+
+      const res2 = mockRes();
+      const next2 = mockNext();
+      await mw(reqWith({ "idempotency-key": key }), res2, next2);
+      expect(next2.called).toBe(false);
+      expect(res2._body).toEqual({ id: 3 });
+    });
+
+    test("leitura passa direto, mesmo em mode required e sem chave", async () => {
+      const mw = idempotencyMiddleware();
+      for (const method of ["GET", "HEAD", "OPTIONS"]) {
+        const res = mockRes();
+        const next = mockNext();
+        await mw(reqWith({}, { method }), res, next);
+        expect(next.called).toBe(true);
+        expect(res.statusCode).toBe(200);
+      }
+    });
+
+    test("POST, PUT, PATCH e DELETE exigem a chave por padrão", async () => {
+      const mw = idempotencyMiddleware();
+      for (const method of ["POST", "PUT", "PATCH", "DELETE"]) {
+        const res = mockRes();
+        await mw(reqWith({}, { method }), res, mockNext());
+        expect(res.statusCode).toBe(400);
+      }
+    });
+
+    test("methods troca a lista, sem diferenciar maiúsculas", async () => {
+      const mw = idempotencyMiddleware({ methods: ["post"] });
+
+      const put = mockRes();
+      const nextPut = mockNext();
+      await mw(reqWith({}, { method: "PUT" }), put, nextPut);
+      expect(nextPut.called).toBe(true);
+
+      const post = mockRes();
+      await mw(reqWith({}, { method: "POST" }), post, mockNext());
+      expect(post.statusCode).toBe(400);
+    });
   });
 
   test("resposta de erro não é cacheada: a mesma chave roda o handler de novo", async () => {
@@ -163,6 +339,10 @@ describe("idempotencyMiddleware", () => {
 
       expect(captured.rejections).toEqual([]);
       expect(res2.statusCode).toBe(409);
+      expect(res2._body).toEqual({
+        message: "O envio anterior foi interrompido. Envie de novo.",
+        code: "IDEMPOTENCY_REQUEST_ABORTED",
+      });
     });
   });
 });

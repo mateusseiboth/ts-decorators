@@ -11,7 +11,7 @@ import {
   recordRoute,
   type RegisteredRoute,
 } from "./route-registry";
-import { validateRouteFile } from "./validate-route-file";
+import { assertWithoutForbiddenPatterns, validateRouteFile } from "./validate-route-file";
 
 /** Rota montada pelo `folderRouter`, como o `AllRouters` a expõe. */
 export interface MountedRouter extends RegisteredRoute {
@@ -32,6 +32,33 @@ type FolderRouterOptions = {
   prefix?: string;
 };
 
+/**
+ * O arquivo de middlewares de uma pasta. O `middlewares` que ele exporta vale para a pasta e para
+ * todas as de baixo, antes do `middlewares` de cada rota. Sem o export, não muda nada.
+ */
+const ARQUIVOS_DE_MIDDLEWARES_DA_PASTA = ["_middlewares.ts", "_middlewares.js"];
+
+const isArquivo = (caminho: string) =>
+  fs.stat(caminho).then(
+    (stat) => stat.isFile(),
+    () => false,
+  );
+
+/** Os middlewares que a pasta declara no `_middlewares` dela; nenhum quando não há. */
+async function readMiddlewaresDaPasta(pasta: string): Promise<RequestHandler[]> {
+  for (const nome of ARQUIVOS_DE_MIDDLEWARES_DA_PASTA) {
+    const arquivo = path.join(pasta, nome);
+    if (!(await isArquivo(arquivo))) continue;
+    assertWithoutForbiddenPatterns(await fs.readFile(arquivo, "utf-8"), arquivo);
+    const { middlewares } = await import(arquivo);
+    return Array.isArray(middlewares) ? middlewares : [];
+  }
+  return [];
+}
+
+/** O mesmo handler em mais de um nível (global, pasta, rota) roda uma vez, na primeira posição. */
+const withoutRepetidos = (handlers: RequestHandler[]) => [...new Set(handlers)];
+
 export async function folderRouter(
   app: Express,
   baseFolder: string,
@@ -40,7 +67,9 @@ export async function folderRouter(
   const globalMiddlewares = options?.middlewares || [];
   const montadas: RegisteredRoute[] = [];
 
-  async function scan(currentDir: string) {
+  /** `herdados`: os `_middlewares` das pastas de cima, da raiz para a atual. */
+  async function scan(currentDir: string, herdados: RequestHandler[]) {
+    const daPasta = [...herdados, ...(await readMiddlewaresDaPasta(currentDir))];
     const entries = await fs.readdir(currentDir, {
       withFileTypes: true,
     });
@@ -49,7 +78,7 @@ export async function folderRouter(
       const fullPath = path.join(currentDir, entry.name);
 
       if (entry.isDirectory()) {
-        await scan(fullPath);
+        await scan(fullPath, daPasta);
 
         continue;
       }
@@ -83,10 +112,11 @@ export async function folderRouter(
       const router = Router();
 
       const routeMiddlewares = imported.middlewares || [];
-      logger.debug(
-        `Applying middlewares for ${routePath}: ${routeMiddlewares.length} middlewares found`,
-      );
-      app.use(routePath, ...globalMiddlewares, ...routeMiddlewares, router);
+      // A rota que não pode herdar (upload multipart, antes do multer) declara a saída.
+      const herdaveis = imported.inheritFolderMiddlewares === false ? [] : daPasta;
+      const aplicados = withoutRepetidos([...globalMiddlewares, ...herdaveis, ...routeMiddlewares]);
+      logger.debug(`Applying middlewares for ${routePath}: ${aplicados.length} middlewares found`);
+      app.use(routePath, ...aplicados, router);
 
       await imported.registry(router);
 
@@ -103,7 +133,7 @@ export async function folderRouter(
     }
   }
 
-  await scan(baseFolder);
+  await scan(baseFolder, []);
 
   // Uma tabela por pasta varrida (web, api...), no lugar de uma linha por rota.
   for (const linha of formatRoutesTable(montadas)) logger.info(linha);

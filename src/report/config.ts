@@ -21,6 +21,11 @@ export function getReportEngine(): ReportEngine {
   return _engine;
 }
 
+/** A engine configurada, ou `undefined` se o app não usa relatórios (desligamento). */
+export function findReportEngine(): ReportEngine | undefined {
+  return _engine;
+}
+
 /** Desfaz a configuração (testes). */
 export async function resetReportEngine(): Promise<void> {
   const engine = _engine;

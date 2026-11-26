@@ -15,14 +15,14 @@ import { SimpleModel } from "./_models";
 describe("middlewares espelham no contexto do request", () => {
   afterEach(() => setHandlerContext(() => undefined));
 
-  function comContexto() {
+  function withContexto() {
     const ctx: Record<string, any> = { entity: 1 };
     setHandlerContext(() => ctx);
     return ctx;
   }
 
   test("getWhere escreve no res.locals E no contexto", () => {
-    const ctx = comContexto();
+    const ctx = withContexto();
     const res = mockRes();
     getWhere(mockReq({ query: { name: "Ana" } }), res, mockNext(), SimpleModel);
 
@@ -31,7 +31,7 @@ describe("middlewares espelham no contexto do request", () => {
   });
 
   test("getOrderBy escreve nos dois", () => {
-    const ctx = comContexto();
+    const ctx = withContexto();
     const res = mockRes();
     getOrderBy(
       mockReq({ query: { orderBy: "name", orderMethod: "asc" } }),
@@ -45,7 +45,7 @@ describe("middlewares espelham no contexto do request", () => {
   });
 
   test("getPaginate escreve nos dois", () => {
-    const ctx = comContexto();
+    const ctx = withContexto();
     const res = mockRes();
     getPaginate(
       mockReq({ headers: { paginate: "true", page: "2", offset: "20" } }),
@@ -58,7 +58,7 @@ describe("middlewares espelham no contexto do request", () => {
   });
 
   test("getColumns escreve nos dois", () => {
-    const ctx = comContexto();
+    const ctx = withContexto();
     const res = mockRes();
     getColumns(mockReq({ query: { fields: "name" } }), res, mockNext(), SimpleModel);
 
@@ -67,7 +67,7 @@ describe("middlewares espelham no contexto do request", () => {
   });
 
   test("getPaginate sem o header não toca em nada", () => {
-    const ctx = comContexto();
+    const ctx = withContexto();
     const res = mockRes();
     getPaginate(mockReq(), res, mockNext());
 

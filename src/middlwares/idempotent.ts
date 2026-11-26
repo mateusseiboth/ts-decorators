@@ -1,7 +1,11 @@
+import { createHash } from "node:crypto";
+
 import type { NextFunction, Request, Response } from "express";
 
 import { logger } from "../functions/logger";
 import { getHandlerContext } from "../handlers/context";
+import { METRICA } from "../observability/catalog";
+import { incrementMetric } from "../observability/metrics";
 
 interface CachedResponse {
   status: number;
@@ -13,6 +17,8 @@ interface PendingRequest {
   expiresAt: number;
   /** Dono da requisição (usuário/entidade) que criou a chave. */
   owner: string;
+  /** Método, caminho e hash do corpo da requisição que criou a chave. */
+  fingerprint: string;
 }
 
 const requests = new Map<string, PendingRequest>();
@@ -41,7 +47,11 @@ function ensureSweeper(): void {
   sweeper.unref?.();
 }
 
-interface Options {
+/** `required`: escrita sem chave recebe 400. `optional`: escrita sem chave passa sem idempotência. */
+export type IdempotencyMode = "required" | "optional";
+
+export interface IdempotencyOptions {
+  /** Por quantos milissegundos a chave vale. Default: 60_000. */
   ttl?: number;
   /**
    * Deriva o "dono" da requisição para isolar chaves entre usuários/empresas.
@@ -49,6 +59,83 @@ interface Options {
    * Default: usa o contexto (user + entidade); como fallback, o header Authorization + entidade.
    */
   identify?: (req: Request) => string;
+  /** O que fazer com a escrita que chega sem chave. Default: `"required"`. */
+  mode?: IdempotencyMode;
+  /** Métodos que passam pela idempotência; os demais seguem direto. Default: POST, PUT, PATCH, DELETE. */
+  methods?: string[];
+}
+
+const DEFAULT_METHODS = ["POST", "PUT", "PATCH", "DELETE"];
+
+/**
+ * Corpos de erro, no padrão `{ message, code }` do pacote. O texto vai para a tela: diz o que
+ * fazer. O `code` é o que o desenvolvedor procura.
+ */
+const ERRO = {
+  KEY_REQUIRED: {
+    status: 400,
+    body: {
+      message: "Não foi possível identificar o envio. Atualize a página e tente de novo.",
+      code: "IDEMPOTENCY_KEY_REQUIRED",
+    },
+  },
+  KEY_CONFLICT: {
+    status: 409,
+    body: {
+      message: "Este envio pertence a outro usuário. Atualize a página e tente de novo.",
+      code: "IDEMPOTENCY_KEY_CONFLICT",
+    },
+  },
+  KEY_REUSED: {
+    status: 422,
+    body: {
+      message: "Este envio já foi feito com outros dados. Atualize a página e tente de novo.",
+      code: "IDEMPOTENCY_KEY_REUSED",
+    },
+  },
+  REQUEST_ABORTED: {
+    status: 409,
+    body: {
+      message: "O envio anterior foi interrompido. Envie de novo.",
+      code: "IDEMPOTENCY_REQUEST_ABORTED",
+    },
+  },
+} as const;
+
+const sendErro = (res: Response, erro: (typeof ERRO)[keyof typeof ERRO]) =>
+  res.status(erro.status).json(erro.body);
+
+type Middleware = (req: Request, res: Response, next: NextFunction) => unknown;
+
+/** Escrita sem chave: recusa (`required`) ou segue sem idempotência (`optional`). */
+const WITHOUT_KEY: Record<IdempotencyMode, Middleware> = {
+  required: (_req, res) => sendErro(res, ERRO.KEY_REQUIRED),
+  optional: (_req, _res, next) => next(),
+};
+
+/** `Idempotency-Key` é o nome do rascunho da IETF; `x-idempotency-key` é o de sempre. */
+const readKey = (req: Request): string | undefined =>
+  req.header("idempotency-key") || req.header("x-idempotency-key") || undefined;
+
+/**
+ * Mesma chave com outro pedido é engano do cliente (chave reaproveitada depois de mudar o
+ * formulário): reproduzir a resposta antiga esconderia que a mudança não foi gravada.
+ * O corpo é serializado com as chaves em ordem, em todos os níveis: a ordem dos campos não muda
+ * o pedido.
+ */
+const isPlainObject = (value: unknown): value is Record<string, unknown> =>
+  Object.prototype.toString.call(value) === "[object Object]";
+
+const sortKeys = (_key: string, value: unknown) =>
+  isPlainObject(value)
+    ? Object.fromEntries(Object.entries(value).sort(([a], [b]) => a.localeCompare(b)))
+    : value;
+
+function buildFingerprint(req: Request): string {
+  const corpo = createHash("sha256")
+    .update(JSON.stringify(req.body ?? null, sortKeys))
+    .digest("hex");
+  return `${req.method.toUpperCase()} ${req.originalUrl ?? req.url}|${corpo}`;
 }
 
 /**
@@ -67,42 +154,40 @@ function defaultIdentify(req: Request): string {
   return `a:${auth}|e:${entity}`;
 }
 
-export function idempotencyMiddleware(options: Options = {}) {
+/** A chave já existe: reproduz para o mesmo dono e o mesmo pedido, ou recusa. */
+async function replay(existing: PendingRequest, owner: string, req: Request, res: Response) {
+  // Chave de outro usuário/empresa nunca vaza a resposta.
+  if (existing.owner !== owner) return sendErro(res, ERRO.KEY_CONFLICT);
+  if (existing.fingerprint !== buildFingerprint(req)) return sendErro(res, ERRO.KEY_REUSED);
+
+  const cached = await existing.promise.catch(() => null);
+
+  // A original caiu antes de responder e liberou a chave: o cliente reenvia.
+  if (!cached) return sendErro(res, ERRO.REQUEST_ABORTED);
+
+  incrementMetric(METRICA.IDEMPOTENCY_REPLAY);
+  return res.status(cached.status).json(cached.body);
+}
+
+export function idempotencyMiddleware(options: IdempotencyOptions = {}) {
   const ttl = options.ttl ?? 60_000;
   const identify = options.identify ?? defaultIdentify;
+  const withoutKey = WITHOUT_KEY[options.mode ?? "required"];
+  const methods = new Set((options.methods ?? DEFAULT_METHODS).map((m) => m.toUpperCase()));
 
   return async function (req: Request, res: Response, next: NextFunction) {
-    const key = req.header("x-idempotency-key");
+    // Leitura (ou método fora da lista) não grava nada: segue direto.
+    if (!methods.has(req.method.toUpperCase())) return next();
 
-    if (!key) {
-      return res.status(400).json({
-        error: "Missing x-idempotency-key",
-      });
-    }
+    const key = readKey(req);
+    if (!key) return withoutKey(req, res, next);
 
     const owner = identify(req);
     const existing = requests.get(key);
 
     if (existing) {
-      // A chave já existe: só reproduz para o MESMO dono. Chave de outro
-      // usuário/empresa nunca vaza a resposta — responde 409 Conflict.
-      if (existing.owner !== owner) {
-        return res.status(409).json({
-          error: "Idempotency key conflict",
-        });
-      }
-
       logger.debug(`Replaying response for idempotency key: ${key}`);
-      const cached = await existing.promise.catch(() => null);
-
-      // A original caiu antes de responder e liberou a chave: o cliente reenvia.
-      if (!cached) {
-        return res.status(409).json({
-          error: "A requisição anterior foi interrompida. Envie novamente.",
-        });
-      }
-
-      return res.status(cached.status).json(cached.body);
+      return replay(existing, owner, req, res);
     }
 
     let resolvePromise!: (value: CachedResponse) => void;
@@ -120,6 +205,7 @@ export function idempotencyMiddleware(options: Options = {}) {
       promise,
       expiresAt: Date.now() + ttl,
       owner,
+      fingerprint: buildFingerprint(req),
     };
 
     requests.set(key, pending);

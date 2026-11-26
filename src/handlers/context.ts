@@ -31,13 +31,14 @@ type ContextRunner = <T>(ctx: HandlerContext, fn: () => T) => T;
 export interface HandlerContextOptions {
   /**
    * Abre um contexto em volta de `fn` no armazenamento do projeto (`store.run(ctx, fn)`). É o que
-   * o `withTenant` usa: com ele, o código do próprio projeto também enxerga o contexto aberto.
+   * o `runWithHandlerContext` usa: com ele, o código do próprio projeto também enxerga o contexto
+   * aberto.
    * Sem ele, o pacote guarda o contexto aberto num armazenamento seu, que só o pacote lê.
    */
   run?: ContextRunner;
   /**
    * Chaves do contexto que guardam transação, além de `transaction` (que o pacote lê e é sempre
-   * incluída). O `withTenant` não as leva para outro tenant: a transação de fora tem o
+   * incluída). Quem abre o contexto de outro tenant não as leva: a transação de fora tem o
    * `set_config` do tenant de fora. Ex.: `["tx8", "_tx8Override"]`. Default: só `transaction`.
    */
   transactionKeys?: readonly string[];
@@ -71,7 +72,7 @@ const buildRequirer =
 /**
  * Injeta as funções de contexto do projeto host.
  * `requireCtx` é opcional: se omitida, usa uma implementação que lança quando `getCtx()` retorna
- * undefined. `options.run` abre um contexto no armazenamento do projeto (`withTenant`), e
+ * undefined. `options.run` abre um contexto no armazenamento do projeto (`runWithHandlerContext`), e
  * `options.transactionKeys` diz onde o projeto guarda a transação.
  */
 export function setHandlerContext(

@@ -4,7 +4,7 @@ Da versão mais nova para a mais antiga. As entradas marcadas como **base** vier
 de que este pacote nasceu (mesma origem, linhas separadas desde julho de 2026) e chegam aqui
 juntas na 2.0.0-rc.1. A versão entre parênteses é a da base, para quem compara as duas linhas.
 
-## 2.0.0-rc.34 (em andamento)
+## 2.0.0-rc.34 (2026-11-26)
 
 ### Paginação, filtro e camada de dados
 
@@ -34,6 +34,66 @@ juntas na 2.0.0-rc.1. A versão entre parênteses é a da base, para quem compar
   `recordMetric`, `incrementMetric`, `registerGauge`, `getTenantLabel` e os `BUCKETS_*`.
 - Fakes: `FakeModelMeta.required` (colunas NOT NULL no contrato) e `withoutOrdenacao` no lugar de
   `semOrdenacao`, que continua aceito.
+
+### Resiliência e operação
+
+- `@AfterCommit(evento)`: o evento sai só depois do commit e é descartado no rollback.
+- `@Retry`/`withRetry`, `@Timeout`/`withTimeout`/`getTimeoutSignal`, `@CircuitBreaker`/
+  `withCircuitBreaker` e `@SingleFlight`/`withSingleFlight`.
+- `@AdvisoryLock`/`withAdvisoryLock`: `pg_advisory_xact_lock` (Prisma 7 e 8) e `GET_LOCK` (MySQL,
+  Prisma 7) na transação em uso; `AdvisoryLockTimeoutError` no `waitMs`.
+- `@IdempotentMethod`/`withIdempotency` para job e consumidor de fila.
+- `enableGracefulShutdown`, `@OnShutdown`, `createDrainRouter` e `rejectWritesWhenDraining`
+  (drenagem com o servidor no ar), `@HealthCheck`/`createHealthRouter` (`/health`, `/ready`).
+- `@Timed`, `@Counted`, `@Deprecated`/`deprecatedMiddleware`, `@Config`/`defineConfig`.
+- `@Trace`/`withSpan`: span do OpenTelemetry em volta do método (peer opcional).
+- **Correção:** método `async` decorado continua `async` (os decorators de classe que só envolvem
+  `AsyncFunction` deixavam o método fora da transação).
+- **Correção:** decorar a subclasse não muda mais a lista da classe base (`@Cron`, `@Listen`,
+  `@Processor`, `@MaskSensitive`, `@RegistryRouter` no padrão legado).
+
+### Observabilidade (`@mateusseiboth/ts-decorators/observability`)
+
+- `bun --preload @mateusseiboth/ts-decorators/observability/preload` sobe o SDK do OpenTelemetry
+  (traces e métricas por OTLP, propagação `traceparent`/`X-Trace-Id`, `fetch` instrumentado,
+  console em JSON). `observeHttp()` completa o span da requisição, grava
+  `http.server.request.duration` e escreve uma linha de acesso por requisição.
+- Métricas do próprio pacote (fila, banco com `createPrisma8Metrics`, trava, idempotência,
+  permissão, auditoria, relatório, drenagem, saúde e runtime com `registerDefaultMetrics`).
+- Os pacotes `@opentelemetry/*` do SDK passam a ser dependências do pacote.
+
+### Permissões
+
+- `@RequiresPermission`, `authorize`, `isAllowed`, `isAuthorized`, `decideRouteAccess`, catálogo
+  (`getPermissionCatalog`) e motor de condições (`evaluateConditions`). Cada app chama
+  `configurePermissions` uma vez no bootstrap; sem ela, toda checagem lança.
+
+### Filas, auditoria, relatórios e rotas
+
+- `@Processor(fila, { perTenant: { concurrency, key } })`: concorrência justa por tenant, contada
+  no armazenamento. O `ReportEngine` aceita o mesmo `perTenant`. O `SqliteQueueAdapter` ganha a
+  coluna `tenant` sozinho.
+- `SqliteQueueAdapter`: retenção dos jobs terminados (`completedRetentionMs`,
+  `failedRetentionMs`, `purgeFinished`).
+- `AuditLogger`: um arquivo por mês (`rotate`, `retention`), `sensitiveKeys`, e `authorization`
+  e `cookie` mascarados. `@Auditable({ read: true })` registra leituras (`flushAuditReads`).
+- Middleware `Idempotent`: cabeçalho `Idempotency-Key`, respostas `{ message, code }` em
+  português, 422 para a mesma chave com outro pedido, `mode: "optional"` e `methods`.
+- `folderRouter`: o `_middlewares.ts` da pasta vale para a pasta e as de baixo;
+  `inheritFolderMiddlewares = false` na rota que não herda.
+- Relatórios: **quebra:** o PDF sai em A4 (`pageFormat: "Letter"` volta ao tamanho de antes);
+  PDFs prontos anexados sem rasterizar (`getPdfAttachments`); relatório sai sem brasão quando o
+  download falha; `groupBy`, `extenso` e `formatCpfCnpj` nos modelos.
+- Studio reescrito (galeria de modelos, autocompletar por contexto, painel de problemas, PDF real,
+  paleta Ctrl+K). `STUDIO_ALLOWED_ORIGINS` limita com quais sistemas ele conversa.
+
+### Quebras desta versão (resumo)
+
+- `getPaginate` 400 para `page`/`offset` inválido; listagem vazia no formato da cheia.
+- `logger` em JSON em produção (`LOG_FORMAT=pretty` volta ao texto).
+- PDF dos relatórios em A4.
+- Middleware `Idempotent`: mensagens e códigos novos (`IDEMPOTENCY_KEY_*`) e 422 no reuso da chave.
+- O rótulo/campo de tenant nas métricas e no log se chama `tenant`.
 
 ## 2.0.0-rc.1 (2026-10-16)
 

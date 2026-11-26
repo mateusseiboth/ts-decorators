@@ -2,6 +2,8 @@ import { existsSync, mkdirSync, writeFileSync } from "fs";
 import path from "path";
 
 import type { ReportOutputContext, ReportOutputStrategy, ReportResult } from "../types";
+import { buildAttachmentCuts, planPdfAttachments } from "../worker/pdfAttachments";
+import { DEFAULT_PAGE_FORMAT } from "../worker/pdfOptions";
 import { planReportBatches, type ReportBatchWeight } from "../worker/reportBatch";
 import type { ReportWorkerManager, ReportWorkerPayload } from "../worker/ReportWorkerManager";
 
@@ -31,6 +33,8 @@ export class PdfOutputStrategy implements ReportOutputStrategy {
       outputDir: ctx.outputDir,
       templateSource: ctx.templateSource,
       viewSetupModule: ctx.viewSetupModule,
+      pageFormat: ctx.pageFormat ?? DEFAULT_PAGE_FORMAT,
+      preferCSSPageSize: ctx.preferCSSPageSize ?? false,
     };
 
     // STREAMING de dados: se o relatório bateia, o main já fatia as linhas em arquivos de página
@@ -88,7 +92,14 @@ export class PdfOutputStrategy implements ReportOutputStrategy {
         Number(mod?.BATCH_MAX_WEIGHT) ||
         400,
     );
-    const ranges = planReportBatches(rows, maxWeight, getWeight);
+    // PDFs anexados `after-group` cortam a parte no fim do grupo: o MESMO plano do worker.
+    const getAttachments =
+      typeof mod?.getPdfAttachments === "function" ? mod.getPdfAttachments : undefined;
+    const getGroupKey = typeof mod?.getGroupKey === "function" ? mod.getGroupKey : undefined;
+    const cuts = getAttachments
+      ? buildAttachmentCuts(rows, getAttachments, getGroupKey)
+      : new Set<number>();
+    const ranges = planReportBatches(rows, maxWeight, getWeight, (index) => cuts.has(index));
     if (ranges.length <= 1) return; // cabe em 1 parte → passada única (numeração nativa do Chromium)
 
     if (!existsSync(ctx.outputDir)) mkdirSync(ctx.outputDir, { recursive: true });
@@ -100,6 +111,10 @@ export class PdfOutputStrategy implements ReportOutputStrategy {
       pageFiles.push(filePath);
     }
     payload.totals = typeof mod?.computeTotals === "function" ? mod.computeTotals(rows) : undefined;
+    // Em streaming o worker não vê todas as linhas: o plano dos anexos vai pronto (só caminhos).
+    payload.attachmentPlan = getAttachments
+      ? planPdfAttachments(rows, ranges, getAttachments, getGroupKey)
+      : undefined;
     payload.pageFiles = pageFiles;
     payload.data = undefined; // não envia os dados pelo postMessage
   }

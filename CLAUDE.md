@@ -24,4 +24,15 @@ recebeu o porte dela na 2.0 (veja `CHANGELOG.md`); não depende de nenhum pacote
 ## Pontos de entrada
 
 `.` (`index.ts`), `./testing` (`src/testing/prisma8Fakes.ts`), `./oxlint`
-(`src/oxlint/no-enum.mjs`) e o binário `ts-decorators` (`src/cli/index.ts`, Studio).
+(`src/oxlint/no-enum.mjs`), `./observability` (`src/observability/index.ts`: SDK do
+OpenTelemetry, `observeHttp`), `./observability/preload` (no `--preload` do comando do servidor,
+nunca no `bunfig.toml`) e o binário `ts-decorators` (`src/cli/index.ts`, Studio).
+
+## Observabilidade e Studio
+
+- O ponto de entrada principal NÃO importa `@opentelemetry/*`: decorators, métricas internas e
+  logger usam `getOtelApi()` (`src/observability/otelApi.ts`, carregamento preguiçoso). Só o
+  subpath `./observability` importa o SDK direto.
+- O cliente do Studio (`src/studio/client/`) roda no navegador e tem o próprio `tsconfig.json`
+  (lib DOM), fora do raiz; o `typecheck` confere os dois.
+- Tenant em log, métrica e span se chama `tenant` (lido de `HandlerContext.entity`).

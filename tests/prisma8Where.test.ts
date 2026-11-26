@@ -125,24 +125,24 @@ describe("buildPredicate — where do Prisma 7 vira predicado do Prisma 8", () =
     // `?bairroId=contains:<uuid>` vinha das telas desde o tempo do Prisma 7, quando o id era
     // texto. O proxy de uma coluna uuid não tem `like`/`ilike`, e o filtro morria com
     // "undefined is not an object (evaluating 'field.ilike.bind')" (500).
-    const semLike = () => {
+    const withoutLike = () => {
       const p = proxy();
       const id = p.id as Record<string, unknown>;
       p.id = { ...id, like: undefined, ilike: undefined } as never;
       return p;
     };
     const uuid = "01a0d481-0afd-73bb-915b-5d442132fbf4";
-    expect(buildPredicate(semLike(), { id: { contains: uuid, mode: "insensitive" } })).toEqual({
+    expect(buildPredicate(withoutLike(), { id: { contains: uuid, mode: "insensitive" } })).toEqual({
       op: "eq",
       field: "id",
       value: uuid,
     });
-    expect(buildPredicate(semLike(), { id: { startsWith: uuid } })).toEqual({
+    expect(buildPredicate(withoutLike(), { id: { startsWith: uuid } })).toEqual({
       op: "eq",
       field: "id",
       value: uuid,
     });
-    expect(buildPredicate(semLike(), { NOT: { id: { endsWith: uuid } } })).toEqual({
+    expect(buildPredicate(withoutLike(), { NOT: { id: { endsWith: uuid } } })).toEqual({
       op: "not",
       arg: { op: "eq", field: "id", value: uuid },
     });

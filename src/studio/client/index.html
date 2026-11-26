@@ -1,0 +1,576 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>ts-decorators Studio</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <header id="appbar">
+      <div id="logo" aria-hidden="true"><i data-icon="file"></i></div>
+      <div class="doc-title">
+        <input
+          id="docName"
+          value="Relatório sem título"
+          spellcheck="false"
+          aria-label="Nome do modelo"
+        />
+        <span id="saveState" class="muted">Salvo neste navegador</span>
+      </div>
+      <span class="spacer"></span>
+      <button class="btn ghost" data-action="starters"><i data-icon="plus"></i>Novo</button>
+      <button class="btn ghost" data-action="open-file">
+        <i data-icon="folder"></i>Abrir arquivo
+      </button>
+      <button class="btn ghost" data-action="versions"><i data-icon="history"></i>Versões</button>
+      <span class="divider"></span>
+      <button class="btn ghost" data-action="connect" id="btnConnect">
+        <i data-icon="plug"></i><span id="connectLabel">Conectar ao sistema</span>
+      </button>
+      <button class="btn ghost" data-action="system-templates">
+        <i data-icon="list"></i>Modelos do sistema
+      </button>
+      <button class="btn primary" data-action="publish"><i data-icon="upload"></i>Publicar</button>
+      <span class="divider"></span>
+      <button class="icon-btn" data-action="palette" title="Todos os comandos (Ctrl+K)">
+        <i data-icon="command"></i>
+      </button>
+      <button class="icon-btn" data-action="toggle-theme" title="Tema claro ou escuro">
+        <i data-icon="moon"></i>
+      </button>
+      <button class="icon-btn" data-action="shortcuts" title="Atalhos do teclado (F1)">
+        <i data-icon="help"></i>
+      </button>
+      <input type="file" id="fileInput" accept=".hbs,.html,.handlebars,.txt" hidden />
+    </header>
+
+    <nav id="toolbar" aria-label="Formatação e assistentes">
+      <div class="menu-wrap">
+        <button class="tb" data-menu="mStyles">Estilos <i data-icon="chevron"></i></button>
+        <div class="menu" id="mStyles">
+          <button class="mi" data-wrap="<h1 style='margin: 4px 0;'>|</h1>">
+            <span style="font-size: 20px; font-weight: 700">Título 1</span>
+          </button>
+          <button class="mi" data-wrap="<h2 style='margin: 4px 0;'>|</h2>">
+            <span style="font-size: 17px; font-weight: 600">Título 2</span>
+          </button>
+          <button class="mi" data-wrap="<h3 style='margin: 4px 0;'>|</h3>">
+            <span style="font-size: 15px; font-weight: 600">Título 3</span>
+          </button>
+          <button class="mi" data-wrap="<p>|</p>">Parágrafo</button>
+          <button class="mi" data-wrap="<small>|</small>"><small>Texto pequeno</small></button>
+          <button class="mi" data-wrap="<span style='color: #d93025;'>|</span>">
+            <span style="color: #d93025">Texto em destaque</span>
+          </button>
+        </div>
+      </div>
+      <span class="tb-sep"></span>
+      <button class="tb" data-action="bold" title="Negrito (Ctrl+B)"><b>N</b></button>
+      <button class="tb" data-action="italic" title="Itálico (Ctrl+I)"><i>I</i></button>
+      <button class="tb" data-action="underline" title="Sublinhado (Ctrl+U)"><u>S</u></button>
+      <span class="tb-sep"></span>
+      <button
+        class="tb"
+        data-wrap="<div style='text-align: left;'>|</div>"
+        title="Alinhar à esquerda"
+      >
+        <i data-icon="align-left"></i>
+      </button>
+      <button class="tb" data-wrap="<div style='text-align: center;'>|</div>" title="Centralizar">
+        <i data-icon="align-center"></i>
+      </button>
+      <button
+        class="tb"
+        data-wrap="<div style='text-align: right;'>|</div>"
+        title="Alinhar à direita"
+      >
+        <i data-icon="align-right"></i>
+      </button>
+      <button class="tb" data-wrap="<div style='text-align: justify;'>|</div>" title="Justificar">
+        <i data-icon="align-justify"></i>
+      </button>
+      <span class="tb-sep"></span>
+      <button class="tb" data-insert="<hr />" title="Linha horizontal">
+        <i data-icon="minus"></i>
+      </button>
+      <button
+        class="tb"
+        data-insert="<div style='page-break-after: always;'></div>"
+        title="Quebra de página"
+      >
+        <i data-icon="page-break"></i>
+      </button>
+      <button class="tb" data-insert="{{> assinaturas}}" title="Bloco de assinaturas">
+        <i data-icon="pen"></i>
+      </button>
+      <button class="tb" data-action="comment" title="Comentar trecho (Ctrl+/)">
+        <i data-icon="comment"></i>
+      </button>
+      <span class="tb-sep"></span>
+      <button
+        class="tb wizard"
+        data-action="wizard-table"
+        title="Monta uma tabela a partir de uma lista"
+      >
+        <i data-icon="table"></i>Tabela
+      </button>
+      <button
+        class="tb wizard"
+        data-action="wizard-group"
+        title="Separa uma lista em grupos, com subtotal"
+      >
+        <i data-icon="group"></i>Agrupar
+      </button>
+      <button
+        class="tb wizard"
+        data-action="wizard-condition"
+        title="Mostra um trecho só quando a condição vale"
+      >
+        <i data-icon="branch"></i>Condicional
+      </button>
+      <button
+        class="tb wizard"
+        data-action="wizard-calc"
+        title="Soma, média, contagem de uma lista"
+      >
+        <i data-icon="sigma"></i>Cálculo
+      </button>
+      <div class="menu-wrap">
+        <button class="tb wizard" data-menu="mHelpers" title="Todas as funções disponíveis">
+          <i data-icon="function"></i>Funções <i data-icon="chevron"></i>
+        </button>
+        <div class="menu wide" id="mHelpers"></div>
+      </div>
+      <span class="spacer"></span>
+      <div class="segmented" id="viewToggle" role="group" aria-label="Visualização">
+        <button class="seg" data-view="editor">Código</button>
+        <button class="seg active" data-view="split">Dividido</button>
+        <button class="seg" data-view="preview">Prévia</button>
+      </div>
+    </nav>
+
+    <main id="workspace" class="view-split">
+      <aside id="sidebar" aria-label="Campos dos dados">
+        <div class="pane-head">
+          <span>Campos dos dados</span>
+          <span class="spacer"></span>
+          <button class="icon-btn small" data-action="edit-data" title="Colar ou editar o JSON">
+            <i data-icon="edit"></i>
+          </button>
+          <button class="icon-btn small" data-action="load-data" title="Recarregar do sistema">
+            <i data-icon="refresh"></i>
+          </button>
+        </div>
+        <div class="search">
+          <i data-icon="search"></i>
+          <input
+            id="fieldSearch"
+            type="search"
+            placeholder="Procurar campo"
+            aria-label="Procurar campo"
+          />
+        </div>
+        <div id="dataTree" role="tree"></div>
+        <div class="pane-foot muted">
+          Arraste um campo para o modelo ou clique no <b>+</b>. O Studio ajusta o campo ao ponto do
+          cursor.
+        </div>
+      </aside>
+
+      <div class="splitter" data-split="side" role="separator" aria-orientation="vertical"></div>
+
+      <section id="editorPane" aria-label="Modelo">
+        <div class="pane-head">
+          <span>Modelo</span>
+          <span class="spacer"></span>
+          <button class="icon-btn small" data-action="find" title="Procurar e substituir (Ctrl+F)">
+            <i data-icon="search"></i>
+          </button>
+          <button
+            class="icon-btn small"
+            data-action="toggle-wrap"
+            title="Quebrar linhas longas (Alt+Z)"
+          >
+            <i data-icon="wrap"></i>
+          </button>
+        </div>
+        <div id="findBar" hidden>
+          <input id="findInput" placeholder="Procurar" aria-label="Procurar" />
+          <input id="replaceInput" placeholder="Substituir por" aria-label="Substituir por" />
+          <span id="findCount" class="muted"></span>
+          <button class="icon-btn small" id="findPrev" title="Anterior (Shift+Enter)">
+            <i data-icon="up"></i>
+          </button>
+          <button class="icon-btn small" id="findNext" title="Próximo (Enter)">
+            <i data-icon="down"></i>
+          </button>
+          <button class="btn small" id="replaceOne">Substituir</button>
+          <button class="btn small" id="replaceAll">Todos</button>
+          <button class="icon-btn small" id="findClose" title="Fechar (Esc)">
+            <i data-icon="close"></i>
+          </button>
+        </div>
+        <div id="editorBody">
+          <div id="gutter" aria-hidden="true"></div>
+          <div id="editorWrap">
+            <div id="lineMarks" aria-hidden="true"></div>
+            <pre id="editorHl" aria-hidden="true"><code id="editorCode"></code></pre>
+            <textarea
+              id="editor"
+              spellcheck="false"
+              autocapitalize="off"
+              autocomplete="off"
+              aria-label="Modelo em Handlebars"
+              placeholder="Escreva o modelo aqui ou comece por um modelo pronto (Novo)."
+            ></textarea>
+          </div>
+          <div id="completion" role="listbox" hidden></div>
+        </div>
+        <div id="problemsPane">
+          <button class="pane-head clickable" id="problemsToggle" aria-expanded="true">
+            <span>Problemas</span>
+            <span class="badge err" id="errCount">0</span>
+            <span class="badge warn" id="warnCount">0</span>
+            <span class="spacer"></span>
+            <i data-icon="chevron"></i>
+          </button>
+          <ul id="problems"></ul>
+        </div>
+      </section>
+
+      <div class="splitter" data-split="preview" role="separator" aria-orientation="vertical"></div>
+
+      <section id="previewPane" aria-label="Prévia">
+        <div class="pane-head">
+          <span>Prévia</span>
+          <span id="pageCount" class="muted"></span>
+          <span class="spacer"></span>
+          <select id="pageFormat" aria-label="Tamanho da folha">
+            <option value="A4">A4</option>
+            <option value="A3">A3</option>
+            <option value="A5">A5</option>
+            <option value="Letter">Carta</option>
+            <option value="Legal">Ofício</option>
+          </select>
+          <select id="orientation" aria-label="Orientação">
+            <option value="portrait">Retrato</option>
+            <option value="landscape">Paisagem</option>
+          </select>
+          <select id="zoom" aria-label="Zoom">
+            <option value="fit">Ajustar</option>
+            <option value="0.5">50%</option>
+            <option value="0.75">75%</option>
+            <option value="1">100%</option>
+            <option value="1.25">125%</option>
+            <option value="1.5">150%</option>
+          </select>
+          <button
+            class="icon-btn small"
+            data-action="toggle-guides"
+            title="Mostrar as quebras de página"
+          >
+            <i data-icon="ruler"></i>
+          </button>
+          <button class="icon-btn small" data-action="print" title="Imprimir a prévia">
+            <i data-icon="printer"></i>
+          </button>
+          <button class="btn small" data-action="pdf" title="Gerar o PDF real (Ctrl+Shift+P)">
+            <i data-icon="pdf"></i>PDF
+          </button>
+        </div>
+        <div id="renderError" role="alert" hidden></div>
+        <div id="paperScroll">
+          <div id="paperFrame">
+            <div id="paper">
+              <iframe
+                id="preview"
+                sandbox="allow-scripts allow-same-origin allow-modals"
+                title="Prévia do relatório"
+              ></iframe>
+              <div id="pageGuides" aria-hidden="true"></div>
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <footer id="statusbar">
+      <span><span class="dot" id="statusDot"></span><span id="status">Pronto</span></span>
+      <span id="cursorPos">Ln 1, Col 1</span>
+      <span id="renderTime"></span>
+      <span class="spacer"></span>
+      <span id="dataInfo">Sem dados</span>
+      <span id="connectionInfo">Sem conexão</span>
+    </footer>
+
+    <div id="toast" role="status" aria-live="polite"></div>
+
+    <!-- Dados (JSON) -->
+    <dialog id="dlgData" class="wide">
+      <form method="dialog" class="dlg">
+        <h2>Dados do relatório</h2>
+        <p class="muted">Cole o JSON com os dados. Os campos aparecem no painel da esquerda.</p>
+        <textarea
+          id="jsonInput"
+          class="code"
+          spellcheck="false"
+          placeholder='{"titulo": "Meu relatório", "itens": [{"nome": "Item A", "valor": 10}]}'
+        ></textarea>
+        <div class="error" id="jsonError"></div>
+        <footer>
+          <button type="button" class="btn ghost" id="btnJsonFormat">Organizar</button>
+          <button type="button" class="btn ghost" id="btnJsonSample">Dados de exemplo</button>
+          <span class="spacer"></span>
+          <button type="button" class="btn" data-close>Cancelar</button>
+          <button type="button" class="btn primary" id="btnJsonOk">Usar estes dados</button>
+        </footer>
+      </form>
+    </dialog>
+
+    <!-- Conexão -->
+    <dialog id="dlgConnect">
+      <form method="dialog" class="dlg">
+        <h2>Conectar ao sistema</h2>
+        <label for="baseUrl">Endereço dos relatórios no sistema</label>
+        <input type="text" id="baseUrl" placeholder="http://servidor/relatorio/api" />
+        <label for="reportId">Relatório</label>
+        <input type="text" id="reportId" placeholder="ex.: certidao-negativa" />
+        <label for="headersJson">Cabeçalhos de acesso (JSON)</label>
+        <textarea
+          id="headersJson"
+          class="code short"
+          spellcheck="false"
+          placeholder='{"authorization": "Bearer ...", "entidade": "4"}'
+        ></textarea>
+        <label for="filtersJson">Filtros do relatório (JSON)</label>
+        <textarea id="filtersJson" class="code short" spellcheck="false">{}</textarea>
+        <div class="error" id="connectError"></div>
+        <footer>
+          <span class="spacer"></span>
+          <button type="button" class="btn" data-close>Cancelar</button>
+          <button type="button" class="btn primary" id="btnLoad">Carregar dados</button>
+        </footer>
+      </form>
+    </dialog>
+
+    <!-- Modelos do sistema -->
+    <dialog id="dlgTemplates" class="wide">
+      <form method="dialog" class="dlg">
+        <h2>Modelos do sistema</h2>
+        <p class="muted" id="templatesInfo"></p>
+        <ul id="templatesList" class="list"></ul>
+        <div class="error" id="templatesError"></div>
+        <footer>
+          <button type="button" class="btn ghost" id="btnRestoreDefault">
+            Voltar ao modelo padrão
+          </button>
+          <span class="spacer"></span>
+          <button type="button" class="btn" data-close>Fechar</button>
+        </footer>
+      </form>
+    </dialog>
+
+    <!-- Publicar -->
+    <dialog id="dlgPublish">
+      <form method="dialog" class="dlg">
+        <h2>Publicar no sistema</h2>
+        <p class="muted" id="publishTarget"></p>
+        <label for="publishName">Nome do modelo</label>
+        <input type="text" id="publishName" />
+        <label class="check"
+          ><input type="checkbox" id="publishActivate" checked /> Usar este modelo no relatório a
+          partir de agora</label
+        >
+        <div class="warning" id="publishWarning"></div>
+        <div class="error" id="publishError"></div>
+        <footer>
+          <span class="spacer"></span>
+          <button type="button" class="btn" data-close>Cancelar</button>
+          <button type="button" class="btn primary" id="btnPublish">Publicar</button>
+        </footer>
+      </form>
+    </dialog>
+
+    <!-- Assistente: tabela -->
+    <dialog id="dlgTable" class="wide">
+      <form method="dialog" class="dlg">
+        <h2>Inserir tabela</h2>
+        <label for="tableList">Lista</label>
+        <select id="tableList"></select>
+        <label>Colunas</label>
+        <div id="tableCols" class="cols"></div>
+        <label class="check"
+          ><input type="checkbox" id="tableIndex" checked /> Numerar as linhas</label
+        >
+        <label class="check"
+          ><input type="checkbox" id="tableTotals" /> Linha de total (soma das colunas de número e
+          moeda)</label
+        >
+        <div class="error" id="tableError"></div>
+        <footer>
+          <span class="spacer"></span>
+          <button type="button" class="btn" data-close>Cancelar</button>
+          <button type="button" class="btn primary" id="btnTableOk">Inserir</button>
+        </footer>
+      </form>
+    </dialog>
+
+    <!-- Assistente: agrupar -->
+    <dialog id="dlgGroup" class="wide">
+      <form method="dialog" class="dlg">
+        <h2>Agrupar lista</h2>
+        <div class="row2">
+          <div>
+            <label for="groupList">Lista</label>
+            <select id="groupList"></select>
+          </div>
+          <div>
+            <label for="groupField">Agrupar por</label>
+            <select id="groupField"></select>
+          </div>
+        </div>
+        <label>Colunas de cada grupo</label>
+        <div id="groupCols" class="cols"></div>
+        <label for="groupSum">Subtotal de</label>
+        <select id="groupSum"></select>
+        <div class="error" id="groupError"></div>
+        <footer>
+          <span class="spacer"></span>
+          <button type="button" class="btn" data-close>Cancelar</button>
+          <button type="button" class="btn primary" id="btnGroupOk">Inserir</button>
+        </footer>
+      </form>
+    </dialog>
+
+    <!-- Assistente: condicional -->
+    <dialog id="dlgCond">
+      <form method="dialog" class="dlg">
+        <h2>Mostrar somente se...</h2>
+        <label for="condField">Campo</label>
+        <input type="text" id="condField" list="fieldPaths" placeholder="ex.: situacao" />
+        <datalist id="fieldPaths"></datalist>
+        <div class="row2">
+          <div>
+            <label for="condOp">Condição</label>
+            <select id="condOp">
+              <option value="==">é igual a</option>
+              <option value="!=">é diferente de</option>
+              <option value=">">é maior que</option>
+              <option value=">=">é maior ou igual a</option>
+              <option value="<">é menor que</option>
+              <option value="<=">é menor ou igual a</option>
+              <option value="contem">contém o texto</option>
+              <option value="preenchido">está preenchido</option>
+              <option value="vazio">está vazio</option>
+            </select>
+          </div>
+          <div>
+            <label for="condValue">Valor</label>
+            <input type="text" id="condValue" placeholder="ex.: ATIVO ou 100" />
+          </div>
+        </div>
+        <label class="check"
+          ><input type="checkbox" id="condElse" /> Mostrar outro conteúdo quando não valer</label
+        >
+        <div class="error" id="condError"></div>
+        <footer>
+          <span class="spacer"></span>
+          <button type="button" class="btn" data-close>Cancelar</button>
+          <button type="button" class="btn primary" id="btnCondOk">Inserir</button>
+        </footer>
+      </form>
+    </dialog>
+
+    <!-- Assistente: cálculo -->
+    <dialog id="dlgCalc">
+      <form method="dialog" class="dlg">
+        <h2>Inserir cálculo</h2>
+        <div class="row2">
+          <div>
+            <label for="calcOp">Operação</label>
+            <select id="calcOp">
+              <option value="sum">Soma</option>
+              <option value="avg">Média</option>
+              <option value="min">Menor valor</option>
+              <option value="max">Maior valor</option>
+              <option value="count">Quantidade de itens</option>
+            </select>
+          </div>
+          <div>
+            <label for="calcList">Lista</label>
+            <select id="calcList"></select>
+          </div>
+        </div>
+        <label for="calcField">Campo</label>
+        <select id="calcField"></select>
+        <label class="check"
+          ><input type="checkbox" id="calcCurrency" checked /> Mostrar como moeda (R$)</label
+        >
+        <div class="error" id="calcError"></div>
+        <footer>
+          <span class="spacer"></span>
+          <button type="button" class="btn" data-close>Cancelar</button>
+          <button type="button" class="btn primary" id="btnCalcOk">Inserir</button>
+        </footer>
+      </form>
+    </dialog>
+
+    <!-- Modelos prontos -->
+    <dialog id="dlgStarters" class="wide">
+      <form method="dialog" class="dlg">
+        <h2>Novo modelo</h2>
+        <p class="muted">Escolha um ponto de partida. O modelo atual fica guardado em Versões.</p>
+        <div id="startersGrid" class="cards"></div>
+        <footer>
+          <span class="spacer"></span>
+          <button type="button" class="btn" data-close>Cancelar</button>
+        </footer>
+      </form>
+    </dialog>
+
+    <!-- Versões -->
+    <dialog id="dlgVersions" class="wide">
+      <form method="dialog" class="dlg">
+        <h2>Versões guardadas</h2>
+        <p class="muted">
+          O Studio guarda uma versão ao publicar, ao trocar de modelo e quando você aperta Ctrl+S.
+        </p>
+        <ul id="versionsList" class="list"></ul>
+        <footer>
+          <button type="button" class="btn ghost" id="btnSaveVersion">Guardar versão agora</button>
+          <button type="button" class="btn ghost" id="btnDownload">Baixar arquivo .hbs</button>
+          <span class="spacer"></span>
+          <button type="button" class="btn" data-close>Fechar</button>
+        </footer>
+      </form>
+    </dialog>
+
+    <!-- Atalhos -->
+    <dialog id="dlgShortcuts">
+      <form method="dialog" class="dlg">
+        <h2>Atalhos do teclado</h2>
+        <table id="shortcutsTable" class="shortcuts"></table>
+        <footer>
+          <span class="spacer"></span>
+          <button type="button" class="btn" data-close>Fechar</button>
+        </footer>
+      </form>
+    </dialog>
+
+    <!-- Paleta de comandos -->
+    <dialog id="palette" aria-label="Comandos">
+      <div class="palette">
+        <input
+          id="paletteInput"
+          placeholder="Digite um comando"
+          aria-label="Comando"
+          autocomplete="off"
+        />
+        <ul id="paletteList" role="listbox"></ul>
+      </div>
+    </dialog>
+
+    <script type="module" src="./main.ts"></script>
+  </body>
+</html>

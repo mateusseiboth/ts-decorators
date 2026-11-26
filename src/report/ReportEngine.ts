@@ -1,8 +1,10 @@
 import { randomUUID } from "crypto";
-import { existsSync, mkdirSync } from "fs";
+import { existsSync, mkdirSync, rmSync } from "fs";
 import path from "path";
 
 import { convertBigIntValues } from "../functions/sql";
+import { METRICA, toOutcome } from "../observability/catalog";
+import { recordMetric } from "../observability/metrics";
 import type { QueueJob } from "../queue/adapter";
 import { registerProcessor, registerQueue, startProcessors } from "../queue/registry";
 import { SqliteQueueAdapter } from "../queue/SqliteQueueAdapter";
@@ -21,6 +23,7 @@ import type {
   ReportQueueView,
   ReportTemplateStore,
 } from "./types";
+import { DEFAULT_PAGE_FORMAT } from "./worker/pdfOptions";
 import { ReportWorkerManager, type ReportWorkerStatus } from "./worker/ReportWorkerManager";
 
 const STATUS_LEGADO: Record<QueueJob["status"], ReportQueueStatus> = {
@@ -31,6 +34,14 @@ const STATUS_LEGADO: Record<QueueJob["status"], ReportQueueStatus> = {
 };
 
 const UM_DIA_MS = 24 * 60 * 60 * 1000;
+
+/** A geração do relatório em `app.report.render.duration`, pelo id da definição. */
+const recordRender = (payload: ReportJobPayload, inicio: number, ok: boolean): void =>
+  recordMetric({
+    ...METRICA.REPORT_RENDER,
+    value: (performance.now() - inicio) / 1000,
+    attributes: { relatorio: payload.definition.id, outcome: toOutcome(ok) },
+  });
 
 /**
  * Fachada da engine de relatórios — fila durável em SQLite PRÓPRIO (nunca exige
@@ -72,24 +83,35 @@ export class ReportEngine {
       if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
     }
 
-    this.adapter = new SqliteQueueAdapter<ReportJobPayload>(
-      queueDbPath,
-      options.queueTable ?? "report_jobs",
-    );
-    this.limparAntigosEResetarOrfaos();
-
-    this.templateStore = options.templateStore ?? new SqliteTemplateStore(queueDbPath);
-
+    // Os formatos vêm antes da fila: a limpeza da abertura apaga o arquivo de cada job, e o
+    // nome do arquivo depende da extensão do formato.
     this.formats = new ReportFormatRegistry();
     this.formats.register(new PdfOutputStrategy(() => this.getWorkerManager()));
     this.formats.register(new JsonOutputStrategy());
     for (const strategy of options.formats ?? []) this.formats.register(strategy);
+
+    // Job terminado sai depois de `retentionMs`, junto com o arquivo gerado. A limpeza roda ao
+    // abrir e quando um job termina (no máximo uma vez por hora), não só no boot.
+    this.adapter = new SqliteQueueAdapter<ReportJobPayload>(
+      queueDbPath,
+      options.queueTable ?? "report_jobs",
+      {
+        completedRetentionMs: this.retentionMs,
+        failedRetentionMs: this.retentionMs,
+        onPurge: (jobs) => this.removeResultFiles(jobs),
+      },
+    );
+    this.resetOrfaos();
+
+    this.templateStore = options.templateStore ?? new SqliteTemplateStore(queueDbPath);
 
     this.processor = new ReportProcessor({
       viewsRoot: options.viewsRoot,
       outputDir: this.outputDir,
       partialsDir: options.partialsDir ?? path.join(options.viewsRoot, "partials"),
       viewSetupModule: options.viewSetupModule,
+      pageFormat: options.pageFormat ?? DEFAULT_PAGE_FORMAT,
+      preferCSSPageSize: options.preferCSSPageSize ?? false,
       resolveDataSource: options.resolveDataSource,
       runInContext: options.runInContext ?? ((_job, fn) => fn()),
       provideHeader: options.provideHeader,
@@ -106,6 +128,7 @@ export class ReportEngine {
       handler: (payload: ReportJobPayload) => this.processar(payload),
       concurrency: this.concurrency,
       pollMs: options.pollMs ?? 1000,
+      ...(options.perTenant ? { perTenant: options.perTenant } : {}),
     });
     startProcessors();
 
@@ -123,16 +146,20 @@ export class ReportEngine {
     return this.workerManager;
   }
 
-  /** Limpa concluídos/erros antigos e devolve órfãos "processing" à fila. */
-  private limparAntigosEResetarOrfaos(): void {
-    const cutoff = Date.now() - this.retentionMs;
-    for (const status of ["completed", "failed"] as const) {
-      for (const job of this.adapter.findMany({ status })) {
-        if (job.createdAt < cutoff) this.adapter.delete(job.id);
-      }
-    }
+  /** Devolve à fila os jobs "processing" que o processo anterior deixou no meio. */
+  private resetOrfaos(): void {
     for (const job of this.adapter.findMany({ status: "processing" })) {
       this.adapter.update(job.id, { status: "pending" });
+    }
+  }
+
+  /** O arquivo gerado por cada job apagado pela retenção. Antes ficava no disco para sempre. */
+  private removeResultFiles(jobs: Array<QueueJob<ReportJobPayload>>): void {
+    for (const job of jobs) {
+      const extension = this.formats.has(job.payload.format)
+        ? this.formats.get(job.payload.format).fileExtension
+        : job.payload.format;
+      rmSync(path.join(this.outputDir, `${job.id}.${extension}`), { force: true });
     }
   }
 
@@ -233,13 +260,16 @@ export class ReportEngine {
     if (processing) this.notifier.notifyStatus({ ...processing, status: "processing" });
     await this.safeHook(() => this.hooks.onStarted?.(payload));
 
+    const inicio = performance.now();
     try {
       const result = await this.processor.process(payload, (progress) =>
         this.notifier.notifyProgress(payload, progress),
       );
+      recordRender(payload, inicio, true);
       this.finalizar(payload.id, true);
       await this.safeHook(() => this.hooks.onCompleted?.(payload, result));
     } catch (error: any) {
+      recordRender(payload, inicio, false);
       const message = error?.message ?? String(error);
       this.finalizar(payload.id, false, message);
       await this.safeHook(() => this.hooks.onFailed?.(payload, message));

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtempSync, writeFileSync } from "fs";
+import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import path from "path";
 
@@ -242,6 +242,38 @@ describe("ReportEngine (fila SQLite própria + strategy de formato)", () => {
     expect(engine.getStatus("velho-1")).toBeNull();
   });
 
+  test("a retenção apaga também o arquivo gerado pelo job", () => {
+    const dir = tempDir();
+    const dbPath = path.join(dir, "queue.db");
+    const outputDir = path.join(dir, "report");
+    mkdirSync(outputDir, { recursive: true });
+
+    const seed = new SqliteQueueAdapter(dbPath, "report_jobs");
+    const payload = {
+      definition: definition(),
+      filters: {},
+      exercicio: 2026,
+      format: "fake",
+      user,
+    };
+    const agora = Date.now();
+    for (const [id, createdAt] of [
+      ["velho-2", agora - 48 * 60 * 60 * 1000],
+      ["recente-1", agora],
+    ] as const) {
+      seed.create({ id, payload: { ...payload, id }, status: "completed", createdAt } as any);
+      writeFileSync(path.join(outputDir, `${id}.txt`), "ok");
+    }
+    seed.close();
+
+    configureReportEngine(
+      baseOptions(dir, { formats: [new FakeStrategy()], queueDbPath: dbPath, outputDir }),
+    );
+
+    expect(existsSync(path.join(outputDir, "velho-2.txt"))).toBe(false);
+    expect(existsSync(path.join(outputDir, "recente-1.txt"))).toBe(true);
+  });
+
   test("definição crua do Prisma (BigInt/Date) não quebra a serialização da fila", async () => {
     const dir = tempDir();
     const fake = new FakeStrategy();
@@ -284,5 +316,87 @@ describe("ReportEngine (fila SQLite própria + strategy de formato)", () => {
     expect(engine.getUserJobs("u1", 4).length).toBe(1);
     expect(engine.getUserJobs("u2", 9).length).toBe(1);
     expect(engine.getUserJobs("u1", 9).length).toBe(0);
+  });
+
+  describe("tamanho da página (pageFormat e preferCSSPageSize)", () => {
+    const readContexto = async (extra: Record<string, unknown>) => {
+      const fake = new FakeStrategy();
+      const engine = configureReportEngine(baseOptions(tempDir(), { formats: [fake], ...extra }));
+      await engine.enqueue({
+        definition: definition(),
+        filters: {},
+        exercicio: 2026,
+        format: "fake",
+        user,
+      });
+      await delay(150);
+      return fake.contexts[0];
+    };
+
+    test("padrão: A4, e o size do @page não manda", async () => {
+      const contexto = await readContexto({});
+      expect(contexto?.pageFormat).toBe("A4");
+      expect(contexto?.preferCSSPageSize).toBe(false);
+    });
+
+    test("o que a engine configura chega ao contexto do formato", async () => {
+      const contexto = await readContexto({ pageFormat: "Letter", preferCSSPageSize: true });
+      expect(contexto?.pageFormat).toBe("Letter");
+      expect(contexto?.preferCSSPageSize).toBe(true);
+    });
+  });
+});
+
+describe("ReportEngine com perTenant", () => {
+  /** Segura cada relatório por 40 ms e anota a ordem de início e o pico por entidade. */
+  class LentaStrategy implements ReportOutputStrategy {
+    readonly format = "lenta";
+    readonly contentType = "text/plain";
+    readonly fileExtension = "txt";
+    readonly inicios: string[] = [];
+    readonly pico = new Map<string, number>();
+    private readonly emVoo = new Map<string, number>();
+
+    async generate(ctx: ReportOutputContext): Promise<ReportResult> {
+      const entidade = String(ctx.job.user.entidade);
+      const agora = (this.emVoo.get(entidade) ?? 0) + 1;
+      this.emVoo.set(entidade, agora);
+      this.pico.set(entidade, Math.max(this.pico.get(entidade) ?? 0, agora));
+      this.inicios.push(entidade);
+      await delay(40);
+      this.emVoo.set(entidade, (this.emVoo.get(entidade) ?? 1) - 1);
+      const file = `${ctx.job.id}.txt`;
+      writeFileSync(path.join(ctx.outputDir, file), "ok");
+      return { file, contentType: this.contentType, parts: 1, bytes: 2, durationMs: 1 };
+    }
+  }
+
+  test("a entidade com vários relatórios não segura a outra", async () => {
+    const lenta = new LentaStrategy();
+    const engine = configureReportEngine(
+      baseOptions(tempDir(), {
+        formats: [lenta],
+        concurrency: 2,
+        perTenant: { concurrency: 1 },
+      }),
+    );
+    const pedir = (entidade: number) =>
+      engine.enqueue({
+        definition: definition(),
+        filters: {},
+        exercicio: 2026,
+        format: "lenta",
+        user: { ...user, entidade },
+      });
+    const pedidos = [await pedir(4), await pedir(4), await pedir(11)];
+
+    const limite = Date.now() + 5_000;
+    while (pedidos.some((pedido) => engine.getStatus(pedido.id)?.status !== "completed")) {
+      if (Date.now() > limite) throw new Error("Os relatórios não terminaram a tempo.");
+      await delay(10);
+    }
+
+    expect(lenta.pico.get("4")).toBe(1);
+    expect(lenta.inicios.slice(0, 2).sort()).toEqual(["11", "4"]);
   });
 });

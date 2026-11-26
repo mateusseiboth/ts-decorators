@@ -26,7 +26,7 @@ export interface CompressedReportImage {
 }
 
 /** `Bun.Image` existe a partir do Bun 1.4. Antes disso, só o sharp comprime. */
-function temBunImage(): boolean {
+function hasBunImage(): boolean {
   return typeof (globalThis as { Bun?: { Image?: unknown } }).Bun?.Image === "function";
 }
 
@@ -37,7 +37,7 @@ function temBunImage(): boolean {
  *    que a caixa é recomprimido no tamanho original, nunca esticado.
  *  - `Bun.Image` NÃO decodifica SVG, por isso quem chama já desviou o SVG para o sharp.
  */
-async function comprimirComBunImage(
+async function compressWithBunImage(
   input: Buffer,
   mimeType: string,
   limites: { maxWidth: number; maxHeight: number; quality: number },
@@ -270,8 +270,8 @@ export async function compressReportImage(
   const qualidade = clamp(Number(options.quality) || 0.9, 0.4, 0.95);
 
   // SVG precisa ser RASTERIZADO e só o sharp faz isso — `Bun.Image` recusa o formato.
-  if (mimeType !== "image/svg+xml" && temBunImage()) {
-    return comprimirComBunImage(input, mimeType, { maxWidth, maxHeight, quality: qualidade });
+  if (mimeType !== "image/svg+xml" && hasBunImage()) {
+    return compressWithBunImage(input, mimeType, { maxWidth, maxHeight, quality: qualidade });
   }
 
   const sharp = await loadSharp();

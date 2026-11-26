@@ -1,6 +1,6 @@
 {
   "name": "@mateusseiboth/ts-decorators",
-  "version": "2.0.0-rc.1",
+  "version": "2.0.0-rc.34",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/mateusseiboth/ts-decorators.git"
@@ -19,18 +19,34 @@
   "exports": {
     ".": "./index.ts",
     "./testing": "./src/testing/prisma8Fakes.ts",
-    "./oxlint": "./src/oxlint/no-enum.mjs"
+    "./oxlint": "./src/oxlint/no-enum.mjs",
+    "./observability": "./src/observability/index.ts",
+    "./observability/preload": "./src/observability/preload.ts"
   },
   "scripts": {
     "test": "bun test",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc --noEmit && tsc --noEmit -p src/studio/client",
     "lint": "oxlint --type-aware",
     "lint:fix": "oxlint --type-aware --fix",
     "format": "oxfmt src tests index.ts types.d.ts package.json",
     "format:check": "oxfmt --check src tests index.ts types.d.ts package.json"
   },
+  "dependencies": {
+    "@opentelemetry/auto-instrumentations-node": "^0.82.0",
+    "@opentelemetry/core": "^3.0.0",
+    "@opentelemetry/exporter-metrics-otlp-grpc": "^0.300.0",
+    "@opentelemetry/exporter-trace-otlp-grpc": "^0.300.0",
+    "@opentelemetry/instrumentation-express": "^0.72.0",
+    "@opentelemetry/instrumentation-http": "^0.300.0",
+    "@opentelemetry/otlp-exporter-base": "^0.300.0",
+    "@opentelemetry/resources": "^3.0.0",
+    "@opentelemetry/sdk-node": "^0.300.0",
+    "@opentelemetry/sdk-trace": "^3.0.0",
+    "@opentelemetry/semantic-conventions": "^1.44.0"
+  },
   "devDependencies": {
     "@opentelemetry/api": "^1.10.0",
+    "@opentelemetry/context-async-hooks": "^3.0.0",
     "@opentelemetry/sdk-metrics": "^3.0.0",
     "@types/bun": "latest",
     "handlebars": "^4.7.9",

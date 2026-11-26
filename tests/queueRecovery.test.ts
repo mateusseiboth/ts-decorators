@@ -231,7 +231,7 @@ describe("filas: dois consumidores e jobs órfãos", () => {
 
   test("adapter sem claim continua funcionando", async () => {
     const base = new InMemoryQueueAdapter();
-    const semClaim: QueueAdapter = {
+    const withoutClaim: QueueAdapter = {
       findMany: (filtro) => base.findMany(filtro),
       findUnique: (id) => base.findUnique(id),
       create: (job) => base.create(job),
@@ -239,7 +239,7 @@ describe("filas: dois consumidores e jobs órfãos", () => {
       delete: (id) => base.delete(id),
     };
     const executados: string[] = [];
-    startFila(semClaim, (payload) => executados.push(payload.id));
+    startFila(withoutClaim, (payload) => executados.push(payload.id));
     await enqueue("fila", { id: "a" });
     await delay(50);
 

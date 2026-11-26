@@ -10,13 +10,17 @@
  *    semáforo (tryAcquire). Assim a posição na fila (contagem de "pending") reflete
  *    o estado verdadeiro, em vez de marcar tudo como processing de uma vez.
  *  - Limite por chave (`keyOf` + `maxPerKey`): no máximo N jobs da mesma chave em voo
- *    (ex.: key = entidade). Sem `maxPerKey` o limite é 1 — a mesma entidade nunca
- *    processa 2x em paralelo —, e entidades distintas rodam juntas. O job que excede o
+ *    (ex.: key = tenant). Sem `maxPerKey` o limite é 1 — a mesmo tenant nunca
+ *    processa 2x em paralelo —, e tenants distintos rodam juntas. O job que excede o
  *    limite da chave permanece "pending" e NÃO ocupa vaga — liberando o slot para outra chave.
  *  - Reserva do job (`adapter.claim`): o job só roda no processo que conseguiu tirá-lo de
  *    "pending". Dois processos no mesmo armazenamento não rodam o mesmo job.
  *  - Job órfão: o job em voo renova o `lockedAt`. O "processing" que ficou sem renovar por
  *    `staleAfterMs` é de um processo que caiu, e volta para "pending".
+ *  - Limite por tenant (`perTenant`): no máximo N jobs do mesmo tenant em `processing`,
+ *    contados no armazenamento (vale entre processos), e a vaga livre vai primeiro para o tenant
+ *    com menos jobs rodando. O adapter escolhe (`findPendingPerTenant`) e a reserva confere o
+ *    limite (`claim` com `limite`); adapter sem eles escolhe pelo `findMany`.
  *  - Pausa global (`pauseProcessors`): drain mode de deploy — para de PUXAR novos
  *    jobs, mas os já em voo terminam. `getInFlightCount()` diz quando é seguro sair.
  */
@@ -28,9 +32,25 @@ import {
   emptyQueueStatusCounts,
   QUEUE_STATUSES,
   type QueueAdapter,
+  type QueueTenantLimit,
   type QueueJob,
   type QueueStatusCounts,
 } from "./adapter";
+import {
+  recordJobEnfileirado,
+  recordJobIniciado,
+  recordJobTerminado,
+  type TenantDoPayload,
+} from "./metrics";
+import {
+  buildPerTenant,
+  countPerTenant,
+  requirePerTenant,
+  WITHOUT_TENANT,
+  selectPerTenant,
+  type PerTenantConfig,
+  type PerTenantOptions,
+} from "./perTenant";
 
 interface ProcessorEntry {
   handler: (payload: any) => any | Promise<any>;
@@ -45,12 +65,22 @@ interface ProcessorEntry {
    * "pending". Default: 60 s. Nunca menos que três ciclos de `pollMs`.
    */
   staleAfterMs?: number;
+  /**
+   * No máximo `concurrency` jobs do mesmo tenant em execução, e a vaga livre vai primeiro para a
+   * tenant com menos jobs rodando. Não combina com `keyOf`.
+   */
+  perTenant?: PerTenantOptions;
+}
+
+/** O consumidor registrado: o `perTenant` já resolvido e o handler já embrulhado. */
+interface RegisteredProcessor extends ProcessorEntry {
+  perTenantConfig?: PerTenantConfig;
 }
 
 interface QueueEntry {
   name: string;
   adapter: QueueAdapter;
-  processor?: ProcessorEntry;
+  processor?: RegisteredProcessor;
   running: boolean;
   timer?: ReturnType<typeof setInterval>;
   sem?: Semaphore;
@@ -106,10 +136,21 @@ export function registerQueue(name: string, adapter: QueueAdapter): void {
   getOrCreate(name).adapter = adapter;
 }
 
+const buildProcessor = (entry: ProcessorEntry): RegisteredProcessor => {
+  requirePerTenant("registerProcessor", entry);
+  if (!entry.perTenant) return entry;
+  const perTenantConfig = buildPerTenant(entry.perTenant);
+  return { ...entry, perTenantConfig };
+};
+
 /** Registra a função consumidora de uma fila. */
 export function registerProcessor(name: string, entry: ProcessorEntry): void {
-  getOrCreate(name).processor = entry;
+  getOrCreate(name).processor = buildProcessor(entry);
 }
+
+/** O tenant do job para as métricas: a `key` do `perTenant`, quando a fila tem consumidor com ele. */
+const tenantOfEntry = (entry: QueueEntry): TenantDoPayload | undefined =>
+  entry.processor?.perTenantConfig?.key;
 
 /** Enfileira um payload na fila nomeada. */
 export async function enqueue<T = any>(name: string, payload: T): Promise<QueueJob<T>> {
@@ -121,7 +162,9 @@ export async function enqueue<T = any>(name: string, payload: T): Promise<QueueJ
     status: "pending",
     createdAt: Date.now(),
   };
-  return entry.adapter.create(job);
+  const criado = await entry.adapter.create(job);
+  recordJobEnfileirado(name, criado, tenantOfEntry(entry));
+  return criado;
 }
 
 /** Devolve a vaga da chave; a chave sem job em voo sai do mapa. */
@@ -129,6 +172,20 @@ function releaseKey(entry: QueueEntry, key: string | number): void {
   const restantes = (entry.inFlightKeys.get(key) ?? 1) - 1;
   if (restantes > 0) entry.inFlightKeys.set(key, restantes);
   else entry.inFlightKeys.delete(key);
+}
+
+/** Roda o consumidor e grava a espera, a duração e o término do job. O erro segue para quem chamou. */
+async function runHandlerMedido(entry: QueueEntry, job: QueueJob): Promise<void> {
+  const inicio = performance.now();
+  const tenantOf = tenantOfEntry(entry);
+  recordJobIniciado(entry.name, job, tenantOf);
+  try {
+    await entry.processor!.handler(job.payload);
+  } catch (err) {
+    recordJobTerminado(entry.name, job, inicio, false, tenantOf);
+    throw err;
+  }
+  recordJobTerminado(entry.name, job, inicio, true, tenantOf);
 }
 
 async function runJob(
@@ -140,7 +197,7 @@ async function runJob(
   _inFlight++;
   entry.inFlight++;
   try {
-    await entry.processor!.handler(job.payload);
+    await runHandlerMedido(entry, job);
     await entry.adapter.update(job.id, { status: "completed", lockedAt: undefined });
   } catch (err: any) {
     await entry.adapter.update(job.id, {
@@ -203,13 +260,31 @@ async function requeueOrfaos(entry: QueueEntry, agora: number): Promise<void> {
 }
 
 /** Reserva o job para este processo. Adapter sem `claim` grava direto, como sempre fez. */
-async function claimJob(entry: QueueEntry, job: QueueJob, agora: number): Promise<boolean> {
-  if (entry.adapter.claim) return entry.adapter.claim(job.id, agora);
+async function claimJob(
+  entry: QueueEntry,
+  job: QueueJob,
+  agora: number,
+  limite?: QueueTenantLimit,
+): Promise<boolean> {
+  if (entry.adapter.claim) return entry.adapter.claim(job.id, agora, limite);
   await entry.adapter.update(job.id, { status: "processing", lockedAt: agora });
   return true;
 }
 
-async function drain(entry: QueueEntry): Promise<void> {
+/** O job reservado passa a contar como em voo neste processo e roda. */
+function startJob(
+  entry: QueueEntry,
+  job: QueueJob,
+  key: string | number | undefined,
+  release: () => void,
+): void {
+  if (key !== undefined) entry.inFlightKeys.set(key, (entry.inFlightKeys.get(key) ?? 0) + 1);
+  entry.inFlightIds.add(job.id);
+  startHeartbeat(entry);
+  void runJob(entry, job, key, release);
+}
+
+async function drainPorChave(entry: QueueEntry): Promise<void> {
   const agora = Date.now();
   // Drain mode: não puxa novos jobs; os já em voo seguem até terminar.
   if (_paused) return;
@@ -222,7 +297,7 @@ async function drain(entry: QueueEntry): Promise<void> {
   for (const job of pending) {
     const key = keyOf?.(job.payload);
     // A chave já está no limite dela em voo → deixa "pending" e NÃO consome vaga (o slot
-    // fica livre para outra chave/entidade). Será puxado quando a chave liberar.
+    // fica livre para outra chave/tenant). Será puxado quando a chave liberar.
     const daChave = key === undefined ? 0 : (entry.inFlightKeys.get(key) ?? 0);
     if (key !== undefined && daChave >= maxPerKey) continue;
 
@@ -236,12 +311,79 @@ async function drain(entry: QueueEntry): Promise<void> {
       continue;
     }
 
-    if (key !== undefined) entry.inFlightKeys.set(key, daChave + 1);
-    entry.inFlightIds.add(job.id);
-    startHeartbeat(entry);
-    void runJob(entry, job, key, release);
+    startJob(entry, job, key, release);
   }
 }
+
+/** Adapter sem `findPendingPerTenant`: a mesma escolha, sobre o `findMany`. */
+async function findPendingByFindMany(
+  adapter: QueueAdapter,
+  config: PerTenantConfig,
+  limit: number,
+): Promise<QueueJob[]> {
+  const withTenant = (jobs: QueueJob[]) =>
+    jobs.map((job) => ({ ...job, tenant: config.tenantOf(job.payload) }));
+  const pendentes = withTenant(await adapter.findMany({ status: "pending" }));
+  const emProcessamento = withTenant(await adapter.findMany({ status: "processing" }));
+  return selectPerTenant(pendentes, countPerTenant(emProcessamento), {
+    limit,
+    concurrency: config.concurrency,
+  });
+}
+
+async function findPendingPerTenant(
+  entry: QueueEntry,
+  config: PerTenantConfig,
+  limit: number,
+): Promise<QueueJob[]> {
+  if (!entry.adapter.findPendingPerTenant) {
+    return findPendingByFindMany(entry.adapter, config, limit);
+  }
+  return entry.adapter.findPendingPerTenant({
+    limit,
+    concurrency: config.concurrency,
+    tenantOf: config.tenantOf,
+  });
+}
+
+const buildLimite = (tenant: string, config: PerTenantConfig): QueueTenantLimit | undefined =>
+  tenant === WITHOUT_TENANT ? undefined : { tenant, concurrency: config.concurrency };
+
+/**
+ * Despacho com `perTenant`. O adapter devolve só o que cabe no limite de cada tenant, na ordem
+ * justa, e a reserva confere o limite de novo no armazenamento: entre a leitura e a reserva, outro
+ * processo pode ter levado a última vaga do tenant.
+ */
+async function drainPerTenant(entry: QueueEntry): Promise<void> {
+  const agora = Date.now();
+  if (_paused) return;
+  await requeueOrfaos(entry, agora);
+  const processor = entry.processor!;
+  const config = processor.perTenantConfig!;
+  const vagas = processor.concurrency - entry.inFlightIds.size;
+  if (vagas <= 0) return;
+  const candidatos = await findPendingPerTenant(entry, config, vagas);
+
+  for (const job of candidatos) {
+    const tenant = job.tenant ?? config.tenantOf(job.payload);
+    const key = tenant === WITHOUT_TENANT ? undefined : tenant;
+    // Adapter cujo `claim` não confere o limite: o deste processo ainda vale.
+    if (key !== undefined && (entry.inFlightKeys.get(key) ?? 0) >= config.concurrency) continue;
+
+    const release = entry.sem!.tryAcquire();
+    if (!release) break;
+
+    if (!(await claimJob(entry, job, agora, buildLimite(tenant, config)))) {
+      release();
+      continue;
+    }
+    startJob(entry, job, key, release);
+  }
+}
+
+/** Com `perTenant`, a escolha justa por tenant; sem, a ordem de chegada com o `keyOf`. */
+const drain = (entry: QueueEntry): Promise<void> =>
+  entry.processor!.perTenantConfig ? drainPerTenant(entry) : drainPorChave(entry);
 
 /** Inicia o consumo de todas as filas que têm processor registrado. */
 export function startProcessors(): void {

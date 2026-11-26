@@ -728,3 +728,168 @@ export {
 export { assertWhereFitsContract, InvalidFilterError } from "./src/prisma8/contractFilter";
 export { prepareRead, readShared, shareReads, type PreparedQuery } from "./src/prisma8/reads";
 export { EMPTY_SQL, joinSql, sql, SqlFragment, toTemplate } from "./src/prisma8/sqlFragment";
+
+// --- Resiliência, operação, observabilidade e permissões ---
+export { flushAuditReads } from "./src/decorators/auditable";
+export type { IdempotencyOptions } from "./src/middlwares/idempotent";
+export type { QueuePerTenantQuery, QueueTenantLimit } from "./src/queue/adapter";
+export type { SqliteQueueAdapterOptions } from "./src/queue/SqliteQueueAdapter";
+export type { PerTenantOptions } from "./src/queue/perTenant";
+export type { ReportPageFormat } from "./src/report/types";
+export type {
+  ReportPdfAttachment,
+  ReportPdfAttachmentPlacement,
+} from "./src/report/worker/pdfAttachments";
+export type { AuditLogRotation } from "./src/storage/AuditLogger";
+export {
+  AdvisoryLock,
+  AdvisoryLockTimeoutError,
+  configureAdvisoryLock,
+  withAdvisoryLock,
+  type AdvisoryLockDialect,
+  type AdvisoryLockOptions,
+  type WithAdvisoryLockOptions,
+} from "./src/decorators/advisoryLock";
+export { AfterCommit } from "./src/decorators/afterCommit";
+export {
+  CircuitBreaker,
+  CircuitOpenError,
+  getCircuits,
+  resetCircuits,
+  withCircuitBreaker,
+  type CircuitBreakerOptions,
+  type CircuitSnapshot,
+  type CircuitState,
+} from "./src/decorators/circuitBreaker";
+export {
+  Config,
+  ConfigError,
+  defineConfig,
+  type ConfigIssue,
+  type ConfigOptions,
+} from "./src/decorators/config";
+export { Counted, type CountedOptions } from "./src/decorators/counted";
+export {
+  Deprecated,
+  deprecatedMiddleware,
+  type DeprecatedOptions,
+} from "./src/decorators/deprecated";
+export {
+  createDrainRouter,
+  rejectWritesWhenDraining,
+  type DrainRouterOptions,
+  type RejectWritesWhenDrainingOptions,
+} from "./src/decorators/drain";
+export {
+  HealthCheck,
+  clearHealthChecks,
+  createHealthRouter,
+  initHealthChecks,
+  registerHealthCheck,
+  runHealthChecks,
+  type HealthCheckOptions,
+  type HealthCheckResult,
+  type HealthReport,
+  type HealthRouterOptions,
+  type HealthStatus,
+} from "./src/decorators/healthCheck";
+export {
+  IdempotentMethod,
+  withIdempotency,
+  type IdempotentMethodOptions,
+  type WithIdempotencyOptions,
+} from "./src/decorators/idempotentMethod";
+export { Retry, withRetry, type RetryOptions } from "./src/decorators/retry";
+export {
+  OnShutdown,
+  beginDrain,
+  cancelDrain,
+  enableGracefulShutdown,
+  getDrainStatus,
+  initShutdownHooks,
+  isDraining,
+  isShuttingDown,
+  onShutdown,
+  resetShutdown,
+  runShutdown,
+  type DrainStatus,
+  type GracefulShutdownOptions,
+  type OnShutdownOptions,
+  type RunShutdownOptions,
+  type ShutdownStepResult,
+} from "./src/decorators/shutdown";
+export {
+  SingleFlight,
+  withSingleFlight,
+  type SingleFlightOptions,
+} from "./src/decorators/singleFlight";
+export {
+  Timed,
+  clearTimings,
+  getTimings,
+  onTiming,
+  type TimedOptions,
+  type TimingSample,
+  type TimingStats,
+} from "./src/decorators/timed";
+export { Timeout, TimeoutError, getTimeoutSignal, withTimeout } from "./src/decorators/timeout";
+export {
+  Trace,
+  withSpan,
+  type SpanAttributes,
+  type TraceOptions,
+  type WithSpanOptions,
+} from "./src/decorators/trace";
+export { hasTenant, runWithHandlerContext } from "./src/handlers/context";
+export { recordAppError, type RecordAppErrorOptions } from "./src/observability/appErrors";
+export {
+  registerDefaultMetrics,
+  type DefaultMetricsOptions,
+} from "./src/observability/defaultMetrics";
+export {
+  createPrisma8Metrics,
+  type Prisma8MetricsMiddleware,
+} from "./src/observability/prisma8Metrics";
+export {
+  authorize,
+  decideRouteAccess,
+  isAllowed,
+  isAuthorized,
+  parseKey,
+} from "./src/permissions/authorize";
+export { getActionDef, getPermissionCatalog, resetCatalogCache } from "./src/permissions/catalog";
+export { configurePermissions, resetPermissions } from "./src/permissions/config";
+export {
+  CRUD_ACTIONS,
+  CUSTOM_TAG_MIN,
+  DEFAULT_PERMISSION_MESSAGES,
+  METHOD_TO_ACTION,
+} from "./src/permissions/constants";
+export { PermissionDeniedError } from "./src/permissions/PermissionDeniedError";
+export { evaluateConditions } from "./src/permissions/policy";
+export { RequiresPermission } from "./src/permissions/requiresPermission";
+export type {
+  ActionKey,
+  AuthorizeDecision,
+  AuthorizeInput,
+  AuthorizeOptions,
+  CatalogAction,
+  CatalogAugmentation,
+  CatalogResource,
+  ConditionOperators,
+  Conditions,
+  OutsideRequestPolicy,
+  PermissionActionDef,
+  PermissionCheck,
+  PermissionCheckContext,
+  PermissionMessages,
+  PermissionMessagesInput,
+  PermissionSubject,
+  PermissionsConfig,
+  PolicyContext,
+  RequiresPermissionOptions,
+  ResourceAugmentation,
+  RouteAccessDenial,
+  RouteAccessInput,
+  Roles,
+} from "./src/permissions/types";

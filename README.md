@@ -1354,6 +1354,53 @@ class OrderController {
 
 ---
 
+### Permissões (`@RequiresPermission` / `configurePermissions`)
+
+O núcleo do módulo de permissões RBAC + ABAC dos apps: catálogo (Models do `@ModelTagged` com o
+CRUD, somados ao catálogo do app), motor de condições (`eq`, `ne`, `in`, `gt`, `lt`, `ownerId`),
+`authorize`, `isAllowed`, o decorator e a decisão pura do middleware de rota. Fica no app: o
+`PERMISSION_CATALOG`, o escopo próprio (almoxarifado), a classe de erro 403 e o middleware de rota.
+
+```ts
+import {
+  configurePermissions,
+  decideRouteAccess,
+  METHOD_TO_ACTION,
+  RequiresPermission,
+} from "@mateusseiboth/ts-decorators";
+
+// bootstrap: a configuração é lida na CHAMADA, a ordem dos imports não importa
+configurePermissions<ContextRequest>({
+  catalog: PERMISSION_CATALOG,
+  getContext, // padrão: getHandlerContext
+  resolveSubject: (ctx) => ({
+    roles: ctx.user.roles ?? {},
+    bypass: ctx.user.admin === true || ctx.user.suporte === true, // o app decide o passe livre
+    attributes: { user: ctx.user, entity: ctx.entity, env: { now: Date.now() } },
+  }),
+  createForbiddenError: (message) => new ForbiddenError(message), // padrão: PermissionDeniedError
+  isSameEntity: (ctx) => String(ctx.user.companyId) === String(ctx.entity),
+});
+
+class UsuarioService {
+  @RequiresPermission("1:trocar-avatar", { resource: ([id]) => ({ ownerId: String(id) }) })
+  async updateAvatar(id: string) {}
+}
+
+// middleware de rota (do app): null libera, { status, message } recusa
+const recusa = decideRouteAccess({ context, tag: model.tag, action: METHOD_TO_ACTION[req.method] ?? "" });
+```
+
+- Sem `configurePermissions`, toda checagem lança (falha fechada).
+- Tag negativa: passe livre para qualquer usuário autenticado; nunca aparece no catálogo.
+- `ownerId` compara como texto e nega quando o dono ou o `user.id` faltam.
+- Fora de requisição: `authorize` libera (`authorizeOutsideRequest: "allow"`), `isAllowed` nega
+  (`isAllowedOutsideRequest: false`).
+
+---
+
+---
+
 ### `@Emit` / `@Listen` + `eventBus`
 
 Publica/assina eventos no barramento singleton (`eventBus`).
@@ -1471,6 +1518,12 @@ await (container.get(ReportQueue) as any).enqueue({ id: 1 });
 Adapters inclusos: `InMemoryQueueAdapter` e `SqliteQueueAdapter`. Qualquer objeto que
 implemente a interface `QueueAdapter` (Redis, etc.) funciona.
 
+**Retenção no `SqliteQueueAdapter`.** Job terminado sai da fila depois da retenção: concluído em
+7 dias, falha em 30 (`completedRetentionMs`, `failedRetentionMs`; `Infinity` guarda para
+sempre). A limpeza roda ao abrir e quando um job termina, no máximo uma vez por
+`cleanupIntervalMs` (1 h), ou na hora com `purgeFinished()`. `onPurge` recebe os apagados. O
+arquivo para de crescer, mas só diminui com um `VACUUM`.
+
 **Limite por chave** (`keyOf` + `maxPerKey`): `keyOf` extrai uma chave do payload, e a fila
 nunca deixa mais de `maxPerKey` jobs da MESMA chave em voo. O default é 1, que serializa a
 chave. O job que excede o limite fica `pending` e NÃO ocupa vaga, então o de outra chave passa
@@ -1486,6 +1539,19 @@ class DuplicacaoProcessor {
   })
   async handle(payload) { ... }
 }
+```
+
+**Concorrência justa por tenant** (`perTenant`): no máximo `concurrency` jobs do MESMO tenant em
+`processing`, contados no armazenamento (vale entre processos e durante o deploy), e o worker livre
+pega o job do tenant com menos jobs rodando. A geração de um tenant grande não ocupa todos os
+workers. O tenant sai de `key(payload)`; sem `key`, o primeiro que existir entre `payload.tenant`,
+`payload.ctx.tenant`, `payload.ctx.entity`, `payload.companyId` e `payload.user.entidade` (o
+`ReportUser`). Job sem tenant não tem limite. Não combina com `keyOf`. Vale também no
+`ReportEngine` (opção `perTenant`).
+
+```ts
+@Processor("remessas", { concurrency: 8, perTenant: { concurrency: 2, key: (p) => p.academiaId } })
+async handle(payload) { ... }
 ```
 
 **Reserva do job e job órfão** (`claim`, `lockedAt`, `staleAfterMs`): antes de rodar, a fila
@@ -1538,6 +1604,239 @@ implementa os três; o `InMemoryQueueAdapter` só tem o `countByStatus`. Sem ele
 
 ---
 
+## Resiliência e operação
+
+Decorators para efeito colateral depois do commit, falha transitória, trava entre instâncias,
+medição e desligamento em ordem. Todos têm a versão em função (`withRetry`, `withTimeout`...).
+
+### `@AfterCommit` / `afterCommit`
+
+O `@Emit` publica quando o método retorna, que dentro de uma transação é ANTES do commit: se a
+transação voltar atrás, o e-mail e o job já saíram. O `@AfterCommit` segura o evento até o commit e
+o descarta no rollback. Mesmo payload do `@Emit` (`{ result, args, instance }`).
+
+```ts
+class ParcelaService {
+  @AfterCommit("parcela.quitada")
+  async quitar(id: string) { return parcela; }
+}
+
+afterCommit(tx, () => enqueue("certidoes", { id })); // sem decorator
+```
+
+Vale para a transação aberta por `runInTransaction`, `withTransaction` ou `Transactional`. O
+`ROLLBACK TO SAVEPOINT` do `@TransactionalClass` descarta só os ganchos da escrita desfeita. Sem
+transação, roda na hora.
+
+### `@Retry` / `@Timeout` / `@CircuitBreaker`
+
+```ts
+class ESocialClient {
+  @Retry({ attempts: 3, delayMs: 500 })                          // 500 ms, 1 s, com sorteio
+  @CircuitBreaker({ failureThreshold: 5, resetAfterMs: 30_000 }) // fora do ar: falha na hora
+  @Timeout(10_000)                                               // cada tentativa tem 10 s
+  async sendLote(lote: Lote) {
+    return fetch(url, { body, signal: getTimeoutSignal() });     // o fetch é cancelado de verdade
+  }
+}
+```
+
+Os decorators valem de baixo para cima: o mais perto do método é o mais interno. Nesta ordem, cada
+tentativa conta para o circuito e tem o próprio prazo, e quando o circuito abre o `@Retry` para na
+hora (`CircuitOpenError` não é repetido). `withRetry`, `withTimeout` e `withCircuitBreaker` são as
+versões em função; `getCircuits()` mostra o estado de cada circuito.
+
+### `@SingleFlight`
+
+Chamadas iguais que chegam enquanto a primeira está em andamento recebem a mesma promessa. Não é
+cache: ao terminar, a próxima chamada roda de novo. Junto do `@Cacheable`, evita que todo mundo
+bata no banco quando o cache vence.
+
+```ts
+@SingleFlight({ key: (moeda) => moeda })
+async findCotacao(moeda: string) { ... }
+```
+
+### `@IdempotentMethod` / `withIdempotency`
+
+Para onde o middleware `Idempotent` não chega: mensagem que a fila entrega duas vezes, job
+refeito. Mesma chave em voo divide a execução; concluída dentro de `ttlMs` (default 10 min)
+devolve o resultado guardado sem rodar; falha não é guardada. O tenant do contexto
+(`getHandlerContext`) entra na chave. Fica na memória do processo: não sobrevive a reinício nem
+vale entre instâncias (o que precisa valer sempre fica numa restrição do banco).
+
+```ts
+@IdempotentMethod({ key: (mensagem) => mensagem.id })
+async onPagamento(mensagem: MensagemDePagamento) { ... }
+
+await withIdempotency(`lote-iptu:${exercicio}`, () => createLote(exercicio), { ttlMs: 60_000 });
+```
+
+O nome não é `@Idempotent` porque `Idempotent` já é o middleware (mesmo par de
+`RateLimit`/`RateLimitMethod`).
+
+### `@AdvisoryLock`
+
+Trava no banco, que vale entre instâncias (o `@Mutex` vale só no processo). Postgres com
+`pg_advisory_xact_lock` (Prisma 7 e 8), MySQL com `GET_LOCK`/`RELEASE_LOCK` (Prisma 7). Sempre na
+transação em uso (contexto do handler, `this.DAO.tx` ou `this.tx`).
+
+```ts
+configureAdvisoryLock({ dialect: "mysql" }); // default "postgres"
+
+@AdvisoryLock({ key: (banco) => `remessa:${banco}`, waitMs: 5_000 })
+async gerarRemessa(banco: string) { ... }
+```
+
+A chave vira um hash de 64 bits e nunca entra no SQL como texto. Estourou o `waitMs`:
+`AdvisoryLockTimeoutError`.
+
+### `@Timed`
+
+Duração de cada chamada em memória: contagem, erros, mínimo, máximo e p50/p95/p99 das últimas
+1.000. `onTiming(listener)` repassa cada amostra (log, painel próprio). Com o SDK do
+OpenTelemetry registrado, cada chamada também vira um ponto do histograma `app.method.duration`
+(segundos), com `code.function`, `outcome` (`ok`/`erro`), o `tenant` do contexto e os rótulos de
+`labels(...args)`. `buckets` próprios pedem `metric` próprio.
+
+```ts
+@Timed({ slowMs: 2_000, labels: (tipo: string) => ({ tipo }) }) // acima de 2 s sai no log como lenta
+async calcularIptu(tipo: string, inscricao: string) { ... }
+
+getTimings(); // [{ name: "IptuService.calcularIptu", count, errors, p95Ms, ... }]
+```
+
+### `@Trace` / `withSpan`
+
+Span do OpenTelemetry em volta da chamada: nome `Classe.metodo` (ou `name`), atributo
+`app.entity` com o tenant do contexto e os de `attributes(...args)`. Erro vira
+`recordException` + status ERROR e é relançado. No método assíncrono, o span fecha quando a
+promessa termina; o síncrono continua síncrono.
+
+`@opentelemetry/api` é dependência opcional, carregada na primeira chamada: sem ela instalada, o
+decorator só chama o método. Quem exporta os spans (Jaeger) é o SDK do app.
+
+```ts
+@Trace({ attributes: (competencia: string) => ({ competencia }) })
+async calcularFolha(competencia: string) { ... }
+
+await withSpan("esocial.sendLote", () => client.sendLote(lote), { attributes: { eventos: 50 } });
+```
+
+### Métricas (OpenTelemetry)
+
+Histograma, contador e gauge sem importar o `@opentelemetry/api`: sem ele, ou sem SDK, tudo é
+no-op. O instrumento nasce na primeira gravação e é refeito quando o MeterProvider global muda.
+Rótulo é só valor de poucas opções: nunca id, path cru, mensagem de erro ou usuário.
+
+```ts
+recordMetric({ name: "app.remessa.duration", value: segundos, unit: "s" });
+incrementMetric({ name: "app.boleto.emitido", attributes: { banco, ...getTenantLabel() } });
+const desligar = registerGauge({ name: "app.remessa.pendente", observe: () => fila.length });
+
+@Counted({ labels: (banco: string) => ({ banco }) }) // contador app.method.calls
+async receberWebhook(banco: string, corpo: unknown) { ... }
+```
+
+O pacote grava as próprias métricas: fila (`queue.job.*`, `queue.jobs`), trava do banco
+(`app.advisory_lock.wait.duration`), idempotência, trava otimista, permissão negada, falha da
+auditoria, relatório, drain, saúde e processo (`process.*`). `registerDefaultMetrics()` liga os
+gauges e as métricas do processo (o `startObservability` já chama); `recordAppError(err, {
+statusCode })` vai no `errorHandler` do app. O banco do Prisma 8 entra pelo middleware nativo do
+runtime:
+
+```ts
+export const db = postgres({ contract, url, middleware: [createPrisma8Metrics()] });
+```
+
+Buckets (s): `BUCKETS_HTTP` (5 ms a 60 s), `BUCKETS_DB` (0,5 ms a 10 s), `BUCKETS_QUEUE` (50 ms a
+30 min) e `BUCKETS_PADRAO`, por instrumento, que o SDK usa nas Views. A lista completa, com
+rótulos, está em `src/observability/catalog.ts` e `src/observability/buckets.ts`.
+
+### `@Deprecated`
+
+Rota obsoleta ganha `Deprecation` (RFC 9745), `Sunset` (RFC 8594) e `Link rel="deprecation"`, e um
+aviso no log por rota. Com `blockAfterSunset`, responde 410 depois da data.
+
+```ts
+@Deprecated({ sunset: "2027-01-31", link: "https://docs/v2/imoveis", message: "use GET /v2/imoveis" })
+async list(req: Request, res: Response) { ... }
+
+router.use("/v1", deprecatedMiddleware({ sunset: "2027-01-31" }));
+```
+
+### `@Config` / `defineConfig`
+
+Variáveis de ambiente validadas com zod na subida. Tudo que falta ou está errado sai de uma vez,
+pelo nome da variável e sem o valor. O resultado é congelado.
+
+```ts
+export const env = defineConfig(
+  z.object({ DATABASE_URL: z.url(), PORT: z.coerce.number().int().default(3000) }),
+);
+
+@Config(EnvSchema) // para injetar pelo container; os campos são só declaração
+class AppConfig {
+  declare readonly DATABASE_URL: string;
+  declare readonly PORT: number;
+}
+```
+
+### `@OnShutdown` / `enableGracefulShutdown`
+
+No SIGTERM/SIGINT: para de aceitar conexões, para de puxar jobs e espera os em voo, para o cron e os
+processadores, encerra a engine de relatórios e roda os ganchos, do menor `order` para o maior.
+Cada passo tem prazo, e o erro de um não interrompe os outros.
+
+```ts
+const server = app.listen(port);
+enableGracefulShutdown({ server, drainTimeoutMs: 25_000 });
+onShutdown("prisma", () => prisma.$disconnect(), { order: 900 });
+
+class WebhookService {
+  @OnShutdown({ order: 50 })
+  async flushPendentes() { ... }
+}
+```
+
+**Drenagem com o servidor no ar** (deploy que drena antes de trocar o container): o CI chama
+`POST /internal/drain` (cabeçalho `x-drain-token`, conferido com o `DRAIN_TOKEN`; sem token, com
+`NODE_ENV=production` os POST respondem 401, e fora de produção a rota fica aberta; o log avisa), faz poll em `GET /health/lifecycle` até `"ready":true` e só então manda
+o SIGTERM. Durante a drenagem, POST/PUT/PATCH/DELETE recebem 503 com `Retry-After: 5` e
+`code: "SERVER_DRAINING"`, GET segue, e o `/ready` responde 503. `POST /internal/drain/cancel`
+desfaz e retoma as filas.
+
+```ts
+app.use(createDrainRouter());           // /health/lifecycle, /internal/drain e /cancel
+app.use(rejectWritesWhenDraining());    // antes das rotas
+const server = app.listen(port);
+// drenagem -> servidor -> cron e processadores -> relatórios -> ganchos
+enableGracefulShutdown({ server, drainBeforeClose: true, drainTimeoutMs: 120_000 });
+```
+
+`beginDrain`, `cancelDrain`, `isDraining` e `getDrainStatus` expõem o mesmo estado no código.
+
+### `@HealthCheck` / `createHealthRouter`
+
+`/health` responde se o processo está vivo; `/ready` roda as sondas (em paralelo, com prazo) e
+responde 503 se uma crítica falhar ou se o app estiver drenando ou desligando.
+
+```ts
+app.use(createHealthRouter());
+
+class InfraChecks {
+  @HealthCheck({ name: "banco", timeoutMs: 2_000 })
+  async checkBanco() { await prisma.$queryRaw`SELECT 1`; }
+
+  @HealthCheck({ name: "servico-de-email", critical: false })
+  async checkEmail() { ... }
+}
+```
+
+---
+
+---
+
 ## Roteamento por arquivos — `@GlobalRouter` / `@RegistryRouter`
 
 A PASTA define o path: o servidor varre uma árvore de rotas e monta cada
@@ -1578,6 +1877,18 @@ export const registry = (router: Router) => {
 };
 // opcional: middlewares específicos deste recurso
 export const middlewares = [meuMiddlewareDeModulo];
+```
+
+O middleware que vale para o MÓDULO inteiro mora no `_middlewares.ts` da pasta, e não se repete
+em cada `index.ts`. Ele vale para a pasta e todas as de baixo, antes do `middlewares` da rota; o
+mesmo middleware em mais de um nível roda uma vez.
+
+```ts
+// src/http/routes/api/v1/_middlewares.ts  →  vale para tudo em /api/v1/*
+export const middlewares = [meuMiddlewareDeModulo];
+
+// src/http/routes/api/v1/upload/index.ts: multipart, o corpo só existe depois do multer
+export const inheritFolderMiddlewares = false;
 ```
 
 Peças relacionadas:
@@ -1795,6 +2106,59 @@ commons.setAuditStorage(meuAuditAdapter);                            // opcional
 
 ---
 
+## Observabilidade (`@mateusseiboth/ts-decorators/observability`)
+
+Traces para o Jaeger e métricas para o Prometheus (OTLP gRPC até o otel-collector), logs em JSON
+no stdout para o Loki. Os pacotes do SDK do OpenTelemetry vêm com o ts-decorators: o projeto não
+precisa declarar os seus.
+
+```jsonc
+// package.json: o SDK sobe ANTES do código do projeto, só no processo do servidor
+"start": "bun --preload @mateusseiboth/ts-decorators/observability/preload src/index.ts"
+```
+
+No Dockerfile, o mesmo `--preload` no `CMD`. NÃO coloque no `bunfig.toml`: lá ele roda em todo
+comando `bun` do repositório (CLI do Prisma, scripts, healthcheck), e o console desses comandos
+vira JSON. O `--preload` da linha de comando roda depois dos preloads do bunfig, então quem carrega
+o env continua antes.
+
+```ts
+import { observeHttp } from "@mateusseiboth/ts-decorators/observability";
+
+app.use(withContext);     // o middleware de contexto do projeto, se houver
+app.use(express.json());
+app.use(observeHttp());   // rota, tenant, request id, métricas HTTP e log de acesso
+```
+
+| Env | Default | Uso |
+| --- | --- | --- |
+| `OTEL_ENABLED` | `true` | `"false"` desliga o SDK (o legado `OTEL_TRACING_ENABLED="false"` também) |
+| `OTEL_SERVICE_NAME` | obrigatório | `service.name` |
+| `OTEL_SERVICE_VERSION` | `npm_package_version` ou `0.0.0` | `service.version` |
+| `DEPLOY_ENV` | `NODE_ENV` ou `development` | `deployment.environment.name` |
+| `OTEL_EXPORTER_OTLP_{TRACES,METRICS}_ENDPOINT` | `http://localhost:4317` | coletor |
+| `OTEL_TRACES_EXPORTER` / `OTEL_METRICS_EXPORTER` | `otlp` | `console` imprime uma linha JSON por span/métrica; `none` desliga |
+| `OTEL_METRIC_EXPORT_INTERVAL` | `15000` | ms |
+| `OTEL_BSP_MAX_EXPORT_BATCH_SIZE` / `OTEL_BSP_MAX_QUEUE_SIZE` | `20` / `512` | lote de spans |
+| `LOG_LEVEL` | `info` (cai para `TS_COMMONS_LOG_LEVEL`) | nível do logger |
+| `LOG_FORMAT` | `json` em produção, `pretty` fora | formato do stdout |
+
+- **Por que o preload:** no Bun, o `import` do Express não passa pelo `require` que as
+  instrumentações enganchar. O preload sobe o SDK e carrega `https`, `http` e `express` pelo
+  `require`; o `import` do projeto recebe a cópia instrumentada (span SERVER com `http.route`).
+- **Um span SERVER por requisição:** o `observeHttp` completa o da instrumentação HTTP e, quando
+  ela não abriu nenhum, abre o dele, filho do `traceparent`/`X-Trace-Id` que chegou. `/health*`,
+  `/internal/drain*` e `/metrics` ficam fora do trace (a lista é o `ignorePaths`).
+- **Propagação:** `traceparent` continua o trace; sem ele, o `X-Trace-Id` do gateway vira o trace
+  id. O `fetch` global sai com `traceparent`, `X-Trace-Id` e `x-request-id`.
+- **Corpo no span:** desligado; as escritas de um controller `@Auditable` (ou `markBodyCapture(req)`)
+  gravam os dois corpos inteiros, credenciais mascaradas, até 1 MB por atributo.
+- **Console:** `console.log/info/warn/error/debug` saem pelo `logger` (opção `patchConsole`).
+
+Opções em `startObservability(options)` e `observeHttp(options)` (`src/observability/options.ts`).
+
+---
+
 ## Performance & logging
 
 ### Log levels
@@ -1899,6 +2263,22 @@ setAuditStorage(async (entry) => {
 | `flushIntervalMs` | `250`                 | Janela de agrupamento das escritas      |
 | `maxBatch`        | `200`                 | Quantidade que força um flush imediato  |
 | `maxTextBytes`    | `200_000`             | Teto por campo TEXT; acima disso, resumo |
+| `rotate`          | `"monthly"`           | Um arquivo por mês (`audit-2026-11.db`), por dia (`"daily"`) ou um só (`"none"`) |
+| `retention`       | `12` mensal, `90` diário | Períodos guardados, contando o atual; `Infinity` nunca apaga |
+| `skipResponseBody`| `[]`                  | Verbos sem corpo de resposta gravado, ex.: `["GET"]` |
+| `sensitiveKeys`   | `[]`                  | Chaves mascaradas além das padrão, ex.: `["cpf"]` |
+
+**Máscara.** Em `requestBody` e `responseBody`, em qualquer nível, o valor de `senha`,
+`password`, `token`, `secret`, `access_token`, `refresh_token`, `inviteUrl`, `authorization` e
+`cookie` vira `***`, sem diferenciar maiúsculas, assim como o de campo `@Field({ encrypted: true })`.
+
+**Rotação.** Cada entrada vai para o arquivo do período em que foi registrada. O `audit.db` único
+de antes continua legível e só sai quando a última escrita dele passa da retenção. Quem lê a
+auditoria usa `AuditLogger.getInstance().listFiles()` (do mais antigo para o mais novo).
+
+**Auditoria de leitura.** `@Auditable({ read: true })` (ou a lista dos métodos) registra quem
+consultou o registro, sem gravar o conteúdo lido; a listagem registra o filtro usado. A leitura é
+gravada em lote, fora da transação da requisição: chame `flushAuditReads` num `onShutdown`.
 
 O buffer é descarregado em `beforeExit`/`exit`, então derrubar o processo não
 perde o que estava na fila.

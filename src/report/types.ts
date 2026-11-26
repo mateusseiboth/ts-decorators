@@ -6,6 +6,8 @@
  * fonte de dados (services/DAOs), pasta de views, contexto, notificações e
  * persistência auxiliar (background_jobs etc.) por hooks.
  */
+import type { PerTenantOptions } from "../queue/perTenant";
+import type { ReportPdfAttachment } from "./worker/pdfAttachments";
 
 export interface ReportUser {
   id: string;
@@ -57,6 +59,20 @@ export interface ReportJobPayload {
 
 /** Contrato de status da fila de relatórios. */
 export type ReportQueueStatus = "enqueued" | "processing" | "completed" | "error";
+
+/** Tamanhos de papel do `page.pdf()` (Playwright). */
+export type ReportPageFormat =
+  | "Letter"
+  | "Legal"
+  | "Tabloid"
+  | "Ledger"
+  | "A0"
+  | "A1"
+  | "A2"
+  | "A3"
+  | "A4"
+  | "A5"
+  | "A6";
 
 /** Visão externa de um job (status/fila). */
 export interface ReportQueueView {
@@ -149,6 +165,10 @@ export interface ReportOutputContext {
   templateSource?: string;
   /** Módulo absoluto com registerReportHelpers(hbs) — helpers custom do app. */
   viewSetupModule?: string;
+  /** Tamanho do papel do PDF. Default: A4. */
+  pageFormat?: ReportPageFormat;
+  /** O `size` do `@page` do template vence o `pageFormat`. Default: false. */
+  preferCSSPageSize?: boolean;
   onProgress: (progress: ReportProgress) => void;
 }
 
@@ -198,6 +218,17 @@ export interface ReportRenderModule {
    * em relatórios com TOTAL GERAL entre linhas que queiram batear.
    */
   computeTotals?(rows: readonly unknown[]): unknown;
+  /**
+   * PDFs prontos que entram no relatório SEM rasterizar, com as páginas originais: no início,
+   * depois do grupo da linha (`after-group`) ou no fim. O caminho é um arquivo no disco do
+   * processo; `temporary` faz a engine apagá-lo ao terminar. Ver `ReportPdfAttachment`.
+   */
+  getPdfAttachments?(row: unknown): readonly ReportPdfAttachment[] | undefined;
+  /**
+   * O grupo da linha, para o anexo `after-group`: linhas seguidas com a mesma chave são um grupo,
+   * e o anexo entra depois da última delas. Sem ele, cada linha é um grupo.
+   */
+  getGroupKey?(row: unknown): unknown;
 }
 
 // ── Notificações ─────────────────────────────────────────────────────────────
@@ -259,6 +290,12 @@ export interface ReportEngineOptions {
   concurrency?: number;
   /** Default: 1000. */
   pollMs?: number;
+  /**
+   * Relatórios da mesma entidade gerados ao mesmo tempo, no máximo, e a vaga livre vai para a
+   * entidade com menos relatórios rodando. Sem `key`, a entidade sai de `job.user.entidade`. Sem
+   * ele, só vale o `concurrency`.
+   */
+  perTenant?: PerTenantOptions;
   /** Retenção de jobs terminados. Default: 24h. */
   retentionMs?: number;
 
@@ -280,6 +317,13 @@ export interface ReportEngineOptions {
   partialsDir?: string;
   /** Módulo ABSOLUTO exportando registerReportHelpers(hbs). */
   viewSetupModule?: string;
+  /**
+   * Tamanho do papel do PDF. Default: A4. Sem ele o Chromium imprimia em Letter, ignorando o
+   * `size` do `@page` dos templates (a orientação do `@page` continua valendo).
+   */
+  pageFormat?: ReportPageFormat;
+  /** O `size` do `@page` do template vence o `pageFormat`. Default: false. */
+  preferCSSPageSize?: boolean;
   /** Strategies extras/override (registradas por cima de pdf+json). */
   formats?: ReportOutputStrategy[];
   hooks?: ReportEngineHooks;

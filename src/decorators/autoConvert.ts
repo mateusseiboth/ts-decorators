@@ -1,5 +1,6 @@
 import { parseDate } from "../functions/parseDate";
 import { getTemporalConverter } from "../functions/parseTemporal";
+import { matchAsync } from "./_method";
 import { isDecoratorContext, warnLegacy } from "./_proxy";
 import { getFieldTypes } from "./initFields";
 import { createMetadataCache } from "./metadata";
@@ -170,8 +171,8 @@ function convertNestedValue(meta: NestedModelMeta, value: any): any {
 }
 
 /** Cria a função wrapper que faz a auto-conversão de tipos */
-function wrapWithAutoConvert(originalMethod: Function) {
-  return function (this: any, data: any) {
+function wrapWithAutoConvert(originalMethod: Function): Function {
+  return matchAsync(originalMethod, function (this: any, data: any) {
     if (!data) return originalMethod.call(this, data);
 
     const plan = getConversionPlan(this);
@@ -184,7 +185,7 @@ function wrapWithAutoConvert(originalMethod: Function) {
     }
 
     return originalMethod.call(this, data);
-  };
+  });
 }
 
 /**

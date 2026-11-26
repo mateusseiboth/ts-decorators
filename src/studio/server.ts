@@ -1,106 +1,134 @@
+import { REPORT_HELPER_DOCS } from "../report/templateHelpers";
+import { runAppAction } from "./appProxy";
 /**
- * Servidor local do Studio — serve a página do editor e faz o meio-campo com o
- * app alvo (evita CORS no navegador e reusa o Handlebars do servidor):
+ * Servidor local do Studio, em `Bun.serve`. A página é um cliente TypeScript de verdade
+ * (`client/index.html`), empacotado pelo próprio Bun na primeira requisição.
  *
- *  - POST /api/fetch-data  → proxy para a rota síncrona de dados do app
- *                            (POST .../data/:reportId, com os headers do usuário).
- *  - POST /api/render      → compila o HBS com os MESMOS helpers default do
- *                            worker (src/report/templateHelpers) e devolve o HTML.
- *  - GET  /api/helpers     → catálogo de helpers para o menu "Inserir função".
- *  - POST /api/export      → proxy para POST .../templates/:reportId do app.
- *
- * express e handlebars são peer deps já presentes nos apps consumidores.
+ *  - GET  /api/helpers        catálogo de funções (mesma fonte do worker de PDF).
+ *  - GET  /api/starters       modelos prontos da galeria "Novo".
+ *  - POST /api/render         compila o modelo e devolve o HTML da prévia.
+ *  - POST /api/lint           problemas do modelo (sintaxe, função e campo inexistentes).
+ *  - POST /api/pdf            PDF real, pelo Chromium do playwright.
+ *  - POST /api/app/:action    conversa com o `createReportRouter` do app (ver appProxy).
  */
-import express, { type Request, type Response } from "express";
-import Handlebars from "handlebars";
+import page from "./client/index.html";
+import {
+  createChromiumPdfRenderer,
+  parsePdfOptions,
+  StudioPdfUnavailableError,
+  type StudioPdfRenderer,
+} from "./pdf";
+import { lintStudioTemplate, renderTemplate, TemplateRenderError } from "./render";
+import { STUDIO_STARTERS } from "./starters";
 
-import { REPORT_HELPER_DOCS, registerDefaultReportHelpers } from "../report/templateHelpers";
-import { studioPage } from "./page";
+export { StudioPdfUnavailableError, type StudioPdfOptions, type StudioPdfRenderer } from "./pdf";
 
-function parseHeaders(raw: unknown): Record<string, string> {
-  if (!raw || typeof raw !== "object") return {};
-  const headers: Record<string, string> = {};
-  for (const [key, value] of Object.entries(raw as Record<string, unknown>)) {
-    if (typeof value === "string" && value.length) headers[key] = value;
-  }
-  return headers;
+export interface StudioServerOptions {
+  /** 0 escolhe uma porta livre. */
+  port: number;
+  /** Gera o PDF da prévia. Default: Chromium do playwright, aberto sob demanda. */
+  renderPdf?: StudioPdfRenderer;
+  /**
+   * Endereços dos sistemas com que o Studio pode conversar (ex.: "http://app:3000"). Vazio aceita
+   * qualquer um: é o uso local. No Studio hospedado, defina para ele não virar proxy aberto.
+   */
+  allowedOrigins?: readonly string[];
 }
 
-export async function startStudioServer(port: number): Promise<void> {
-  const app = express();
-  app.use(express.json({ limit: "50mb" }));
+export interface StudioServer {
+  url: string;
+  stop(): Promise<void>;
+}
 
-  app.get("/", (_req: Request, res: Response) => {
-    res.type("html").send(studioPage());
+type Body = Record<string, unknown>;
+
+const json = (status: number, body: unknown) => Response.json(body, { status });
+
+const textOf = (value: unknown) => (typeof value === "string" ? value : "");
+
+async function readBody(request: Request): Promise<Body> {
+  const body: unknown = await request.json().catch(() => ({}));
+  return body && typeof body === "object" ? (body as Body) : {};
+}
+
+function renderFromBody(body: Body): string {
+  return renderTemplate({
+    template: textOf(body.template),
+    data: body.data,
+    partials: (body.partials as Record<string, string> | undefined) ?? {},
+  });
+}
+
+function onRenderError(error: unknown): Response {
+  if (error instanceof TemplateRenderError) {
+    return json(422, { message: error.message, line: error.line });
+  }
+  throw error;
+}
+
+function render(body: Body): Response {
+  const started = performance.now();
+  try {
+    const html = renderFromBody(body);
+    return json(200, { html, ms: Math.round(performance.now() - started) });
+  } catch (error) {
+    return onRenderError(error);
+  }
+}
+
+async function pdf(body: Body, renderPdf: StudioPdfRenderer): Promise<Response> {
+  let html: string;
+  try {
+    html = renderFromBody(body);
+  } catch (error) {
+    return onRenderError(error);
+  }
+  try {
+    const bytes = await renderPdf(html, parsePdfOptions(body));
+    return new Response(bytes, { headers: { "content-type": "application/pdf" } });
+  } catch (error) {
+    if (error instanceof StudioPdfUnavailableError) return json(501, { message: error.message });
+    const detalhe = error instanceof Error ? error.message : String(error);
+    return json(500, { message: `Não foi possível gerar o PDF. ${detalhe}` });
+  }
+}
+
+export async function startStudioServer(options: StudioServerOptions): Promise<StudioServer> {
+  const chromium = options.renderPdf ? null : createChromiumPdfRenderer();
+  const renderPdf = options.renderPdf ?? chromium!.render;
+
+  const server = Bun.serve({
+    port: options.port,
+    // Explícito: com a porta compartilhada, um Studio esquecido aberto responderia metade das
+    // requisições com a versão antiga.
+    reusePort: false,
+    development: false,
+    routes: {
+      "/": page,
+      "/api/helpers": { GET: () => Response.json(REPORT_HELPER_DOCS) },
+      "/api/starters": { GET: () => Response.json(STUDIO_STARTERS) },
+      "/api/render": { POST: async (request) => render(await readBody(request)) },
+      "/api/lint": {
+        POST: async (request) => {
+          const body = await readBody(request);
+          const problems = lintStudioTemplate(textOf(body.template), body.data);
+          return Response.json({ problems });
+        },
+      },
+      "/api/pdf": { POST: async (request) => pdf(await readBody(request), renderPdf) },
+      "/api/app/:action": {
+        POST: async (request) =>
+          runAppAction(request.params.action, await readBody(request), options.allowedOrigins),
+      },
+    },
+    fetch: () => json(404, { message: "Rota não encontrada." }),
   });
 
-  // Catálogo de helpers para o menu "Inserir função" do editor.
-  app.get("/api/helpers", (_req: Request, res: Response) => {
-    res.json(REPORT_HELPER_DOCS);
-  });
-
-  app.post("/api/fetch-data", async (req: Request, res: Response) => {
-    const { url, headers, filters } = req.body ?? {};
-    if (!url) {
-      res.status(400).json({ message: "Informe a URL da rota de dados do app." });
-      return;
-    }
-    try {
-      const response = await fetch(String(url), {
-        method: "POST",
-        headers: { "content-type": "application/json", ...parseHeaders(headers) },
-        body: JSON.stringify(filters ?? {}),
-      });
-      const body = await response.text();
-      res
-        .status(response.status)
-        .type(response.headers.get("content-type") ?? "application/json")
-        .send(body);
-    } catch (error: any) {
-      res.status(502).json({ message: `Falha ao buscar dados no app: ${error?.message ?? error}` });
-    }
-  });
-
-  app.post("/api/render", (req: Request, res: Response) => {
-    const { template, data, partials } = req.body ?? {};
-    try {
-      const hbs = Handlebars.create();
-      registerDefaultReportHelpers(hbs);
-      for (const [name, content] of Object.entries((partials as Record<string, string>) ?? {})) {
-        hbs.registerPartial(name, String(content ?? ""));
-      }
-      // Partial padrão para templates que usam {{> assinaturas}} sem fornecê-lo.
-      if (!(partials as any)?.assinaturas) hbs.registerPartial("assinaturas", "");
-      const html = hbs.compile(String(template ?? ""))(data ?? {});
-      res.json({ html });
-    } catch (error: any) {
-      res.status(422).json({ message: error?.message ?? "Erro ao compilar o template." });
-    }
-  });
-
-  app.post("/api/export", async (req: Request, res: Response) => {
-    const { url, headers, name, content } = req.body ?? {};
-    if (!url || !name || !content) {
-      res.status(400).json({ message: "url, name e content são obrigatórios." });
-      return;
-    }
-    try {
-      const response = await fetch(String(url), {
-        method: "POST",
-        headers: { "content-type": "application/json", ...parseHeaders(headers) },
-        body: JSON.stringify({ name, content }),
-      });
-      const body = await response.text();
-      res
-        .status(response.status)
-        .type(response.headers.get("content-type") ?? "application/json")
-        .send(body);
-    } catch (error: any) {
-      res.status(502).json({ message: `Falha ao exportar template: ${error?.message ?? error}` });
-    }
-  });
-
-  await new Promise<void>((resolve) => {
-    app.listen(port, () => resolve());
-  });
+  return {
+    url: server.url.href,
+    async stop() {
+      await chromium?.close();
+      await server.stop(true);
+    },
+  };
 }

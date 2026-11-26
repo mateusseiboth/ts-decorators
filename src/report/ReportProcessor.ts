@@ -7,6 +7,7 @@ import type {
   ReportAssinatura,
   ReportHeader,
   ReportJobPayload,
+  ReportPageFormat,
   ReportProgress,
   ReportResult,
   ReportTemplateStore,
@@ -17,6 +18,8 @@ export interface ReportProcessorDeps {
   outputDir: string;
   partialsDir: string;
   viewSetupModule?: string;
+  pageFormat: ReportPageFormat;
+  preferCSSPageSize: boolean;
   resolveDataSource: import("./types").ReportDataSourceResolver;
   runInContext: <T>(job: ReportJobPayload, fn: () => Promise<T>) => Promise<T>;
   provideHeader?: (job: ReportJobPayload) => Promise<ReportHeader | undefined>;
@@ -58,6 +61,8 @@ export class ReportProcessor {
         assinaturas,
         templateSource: template?.content,
         viewSetupModule: this.deps.viewSetupModule,
+        pageFormat: this.deps.pageFormat,
+        preferCSSPageSize: this.deps.preferCSSPageSize,
         onProgress,
       });
     });

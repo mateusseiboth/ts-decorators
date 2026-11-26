@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, test } from "bun:test";
+import { beforeEach, describe, expect, test } from "bun:test";
 
 import { Router } from "express";
 
@@ -48,7 +48,9 @@ describe("endpointsOf", () => {
 });
 
 describe("registro de rotas", () => {
-  afterEach(() => clearRegisteredRoutes());
+  // O registro é global ao processo: outro arquivo de teste que monta o folderRouter pode ter
+  // deixado rotas nele, dependendo da ordem em que o bun roda os arquivos.
+  beforeEach(() => clearRegisteredRoutes());
 
   test("guarda na ordem em que foram montadas", () => {
     recordRoute({ path: "/api/v1/banco", endpoints: [{ method: "GET", path: "/" }] });

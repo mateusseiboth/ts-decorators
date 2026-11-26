@@ -35,4 +35,8 @@
     "src",
     "index.ts",
   ],
+  // O cliente do Studio roda no navegador e tem o próprio tsconfig (lib DOM).
+  "exclude": [
+    "src/studio/client",
+  ],
 }

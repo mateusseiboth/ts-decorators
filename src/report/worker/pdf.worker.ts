@@ -31,10 +31,21 @@ import { chromium, firefox, type Browser } from "playwright";
 
 import { buildOrderByFunction } from "../orderBy";
 import { registerDefaultReportHelpers } from "../templateHelpers";
+import { prepareAttachmentFile } from "./attachmentFiles";
+import { loadReportHeaderImage } from "./headerImage";
 import { stampContinuousPageNumbers } from "./pageNumbers";
+import {
+  buildAttachmentCuts,
+  buildMergeOrder,
+  hasPdfAttachments,
+  planPdfAttachments,
+  type ReportGetGroupKey,
+  type ReportGetPdfAttachments,
+  type ReportPdfAttachmentPlan,
+} from "./pdfAttachments";
 import { mergePdfParts } from "./pdfMerge";
+import { buildPdfOptions } from "./pdfOptions";
 import { planReportBatches, type ReportBatchWeight } from "./reportBatch";
-import { compressReportImage, readBodyWithLimit } from "./reportImage";
 
 /**
  * Canal com a thread principal.
@@ -301,6 +312,8 @@ async function processReport(options: any): Promise<void> {
       templateSource,
       viewSetupModule,
       filters = {},
+      pageFormat,
+      preferCSSPageSize,
     } = options;
     const reportDir = outputDir;
     if (!existsSync(reportDir)) mkdirSync(reportDir, { recursive: true });
@@ -333,42 +346,16 @@ async function processReport(options: any): Promise<void> {
     Handlebars.registerPartial("assinaturas", readPartial("assinaturas.hbs"));
 
     const headerData = header ?? {};
-    if (headerData.brasaoURL) {
-      const headerImageTimeoutMs = Math.max(
-        5_000,
-        Number(process.env.REPORT_HEADER_IMAGE_TIMEOUT_MS) || 30_000,
-      );
-      const headerImageMaxBytes = Math.max(
-        1024,
-        Number(process.env.REPORT_HEADER_IMAGE_MAX_BYTES) || 10 * 1024 * 1024,
-      );
-      const response = await fetch(headerData.brasaoURL, {
-        signal: AbortSignal.timeout(headerImageTimeoutMs),
-      });
-      if (!response.ok) {
-        throw new Error(`Falha ao carregar o brasão do relatório (HTTP ${response.status}).`);
-      }
-      const declaredBytes = Number(response.headers.get("content-length") || 0);
-      if (declaredBytes > headerImageMaxBytes) {
-        throw new Error(
-          `Brasão excede o limite de ${fmtBytes(headerImageMaxBytes)} (${fmtBytes(declaredBytes)}).`,
-        );
-      }
-      // Interrompe o download assim que ultrapassar o limite — response.arrayBuffer()
-      // só permitiria validar depois de já ter alocado todo o arquivo em memória.
-      const originalImageBuffer = await readBodyWithLimit(response.body, headerImageMaxBytes);
-
-      const compactedImage = await compressReportImage(originalImageBuffer, {
-        mimeType: response.headers.get("content-type") || undefined,
-        maxWidth: Number(process.env.REPORT_HEADER_IMAGE_MAX_WIDTH) || 256,
-        maxHeight: Number(process.env.REPORT_HEADER_IMAGE_MAX_HEIGHT) || 256,
-        maxSourcePixels: Number(process.env.REPORT_HEADER_IMAGE_MAX_PIXELS) || 20_000_000,
-        quality: Number(process.env.REPORT_HEADER_IMAGE_QUALITY) || 0.9,
-        timeoutMs: headerImageTimeoutMs,
-      });
+    const headerImage = headerData.brasaoURL
+      ? await loadReportHeaderImage(headerData.brasaoURL, {
+          onFailure: (error) => step("⚠️", `Relatório segue sem brasão: ${error.message}`),
+        })
+      : null;
+    headerData.brasaoBase64 = "";
+    if (headerImage) {
       step(
         "🖼️",
-        `Brasão preparado: ${fmtBytes(originalImageBuffer.length)} → ${fmtBytes(compactedImage.buffer.length)} (${compactedImage.mimeType}).`,
+        `Brasão preparado: ${fmtBytes(headerImage.originalBytes)} → ${fmtBytes(headerImage.buffer.length)} (${headerImage.mimeType}).`,
       );
 
       // O carnê tem uma capa por registro. Repetir um brasão grande como data URI
@@ -376,15 +363,14 @@ async function processReport(options: any): Promise<void> {
       // uma vez e repetem somente a URL curta.
       if (renderEngineModule.EXTERNALIZE_HEADER_IMAGE === true) {
         const imagePath = `${reportDir}/${jobId}.header-image`;
-        writeFileSync(imagePath, compactedImage.buffer);
+        writeFileSync(imagePath, headerImage.buffer);
         temporaryPaths.add(imagePath);
         headerData.brasaoBase64 = pathToFileURL(imagePath).href;
       }
       if (renderEngineModule.EXTERNALIZE_HEADER_IMAGE !== true) {
-        headerData.brasaoBase64 = `data:${compactedImage.mimeType};base64,${compactedImage.buffer.toString("base64")}`;
+        headerData.brasaoBase64 = `data:${headerImage.mimeType};base64,${headerImage.buffer.toString("base64")}`;
       }
     }
-    if (!headerData.brasaoURL) headerData.brasaoBase64 = "";
     const viewModel = {
       title,
       header: headerData,
@@ -395,27 +381,17 @@ async function processReport(options: any): Promise<void> {
     const orderByFunction = buildOrderByFunction(filters);
 
     // Opções de page.pdf() (cabeçalho/rodapé só quando o relatório não os desabilita).
-    const buildPdfOptions = (disableHeaderFooter: boolean, hidePageNumber = false) => {
-      const headerHTML = disableHeaderFooter ? "" : headerTemplate(viewModel.header);
-      // hidePageNumber: nas partes bateadas o número do rodapé é reescrito depois (contínuo,
-      // via pageNumbers.ts). O footer omite o número do Chromium para não sobrar texto-fantasma
-      // por baixo (o Ctrl+F acharia "Página X de Y" por-parte). O template usa {{#unless hidePageNumber}}.
-      const footerHTML = disableHeaderFooter
-        ? ""
-        : footerTemplate({ ...viewModel, hidePageNumber });
-      return {
-        displayHeaderFooter: !disableHeaderFooter,
-        margin: disableHeaderFooter
-          ? { top: "10px", bottom: "10px", left: "10px", right: "10px" }
-          : { top: "130px", bottom: "70px" },
-        headerTemplate: disableHeaderFooter
-          ? ""
-          : `\n    <div style="width:100%; padding:0 20px;">\n      ${headerHTML}\n    </div>\n  `,
-        footerTemplate: disableHeaderFooter
-          ? ""
-          : `\n    <div style="width:100%; padding:0 20px; font-size:9px;">\n      ${footerHTML}\n    </div>\n  `,
-      };
-    };
+    const readPdfOptions = (disableHeaderFooter: boolean, hidePageNumber = false) =>
+      buildPdfOptions({
+        disableHeaderFooter,
+        headerHTML: disableHeaderFooter ? "" : headerTemplate(viewModel.header),
+        // hidePageNumber: nas partes bateadas o número do rodapé é reescrito depois (contínuo,
+        // via pageNumbers.ts). O footer omite o número do Chromium para não sobrar texto-fantasma
+        // por baixo (o Ctrl+F acharia "Página X de Y" por-parte). O template usa {{#unless hidePageNumber}}.
+        footerHTML: disableHeaderFooter ? "" : footerTemplate({ ...viewModel, hidePageNumber }),
+        pageFormat,
+        preferCSSPageSize,
+      });
 
     const pageTimeoutMs = Math.max(
       30_000,
@@ -439,7 +415,7 @@ async function processReport(options: any): Promise<void> {
           timeout: pageTimeoutMs,
         });
         const pdfBuffer = await withTimeout(
-          page.pdf({ ...buildPdfOptions(disableHeaderFooter, hidePageNumber), path: pdfFilePath }),
+          page.pdf({ ...readPdfOptions(disableHeaderFooter, hidePageNumber), path: pdfFilePath }),
           pageTimeoutMs,
           "Renderização do PDF",
         );
@@ -503,9 +479,25 @@ async function processReport(options: any): Promise<void> {
       typeof renderEngineModule.computeTotals === "function"
         ? (renderEngineModule.computeTotals as (rows: readonly any[]) => unknown)
         : null;
+    // PDFs prontos anexados pela view (`getPdfAttachments`): o `after-group` corta a parte no fim
+    // do grupo, para o anexo entrar entre partes. Ver pdfAttachments.ts.
+    const getPdfAttachments: ReportGetPdfAttachments | undefined =
+      typeof renderEngineModule.getPdfAttachments === "function"
+        ? renderEngineModule.getPdfAttachments
+        : undefined;
+    const getGroupKey: ReportGetGroupKey | undefined =
+      typeof renderEngineModule.getGroupKey === "function"
+        ? renderEngineModule.getGroupKey
+        : undefined;
+    const attachmentCuts =
+      getPdfAttachments && !batchingDisabled
+        ? buildAttachmentCuts(rowsArr, getPdfAttachments, getGroupKey)
+        : new Set<number>();
     const batchPlan = batchingDisabled
       ? []
-      : planReportBatches(rowsArr, maxBatchWeight, getBatchWeight);
+      : planReportBatches(rowsArr, maxBatchWeight, getBatchWeight, (index) =>
+          attachmentCuts.has(index),
+        );
 
     // Streaming de dados: o main já fatiou as linhas em arquivos de página (`options.pageFiles`),
     // então o worker lê UMA página por vez do disco (memória constante, sem os GBs em `data`).
@@ -514,6 +506,50 @@ async function processReport(options: any): Promise<void> {
       ? options.pageFiles
       : undefined;
     const streaming = !!pageFiles && pageFiles.length > 0;
+
+    // O plano dos anexos sai ANTES de as linhas serem soltas parte a parte. Em streaming vem do
+    // main. Com o lote desligado (SUPPORTS_BATCHING = false) não há fronteira no meio do
+    // documento: o `after-group` vai para depois da passada única.
+    const passadaUnica = [{ start: 0, end: rowsArr.length, weight: rowsArr.length }];
+    const attachmentPlan: ReportPdfAttachmentPlan | undefined = streaming
+      ? options.attachmentPlan
+      : getPdfAttachments
+        ? planPdfAttachments(
+            rowsArr,
+            batchPlan.length > 1 ? batchPlan : passadaUnica,
+            getPdfAttachments,
+            getGroupKey,
+          )
+        : undefined;
+    if (batchingDisabled && attachmentPlan?.afterPart.some((lista) => lista.length > 0)) {
+      step("⚠️", "SUPPORTS_BATCHING = false: os PDFs anexados after-group entram no fim.");
+    }
+    // O arquivo `temporary` é da engine a partir daqui: sai no `finally`, com sucesso ou falha.
+    for (const anexo of [
+      ...(attachmentPlan?.start ?? []),
+      ...(attachmentPlan?.afterPart.flat() ?? []),
+      ...(attachmentPlan?.end ?? []),
+    ]) {
+      if (anexo.temporary) temporaryPaths.add(anexo.path);
+    }
+
+    /** Valida (e corta em `maxPages`) cada anexo; o que não abre fica de fora. */
+    const resolveAttachmentPlan = async (): Promise<ReportPdfAttachmentPlan<string>> => {
+      const resolve = async (lista: ReportPdfAttachmentPlan["start"]) => {
+        const caminhos: string[] = [];
+        for (const anexo of lista) {
+          const pronto = await prepareAttachmentFile(anexo, reportDir, jobId);
+          if (!pronto) continue;
+          if (pronto.temporary) temporaryPaths.add(pronto.path);
+          caminhos.push(pronto.path);
+        }
+        return caminhos;
+      };
+      const plano = attachmentPlan ?? { start: [], afterPart: [], end: [] };
+      const afterPart: string[][] = [];
+      for (const lista of plano.afterPart) afterPart.push(await resolve(lista));
+      return { start: await resolve(plano.start), afterPart, end: await resolve(plano.end) };
+    };
 
     // ──────────────────────────────────────────────────────────────────────────
     // GERAÇÃO EM LOTES (automática): o render pondera cada registro por parcelas/páginas.
@@ -618,7 +654,7 @@ async function processReport(options: any): Promise<void> {
       if (existsSync(mergingPath)) unlinkSync(mergingPath);
       temporaryPaths.add(mergingPath);
       emitProgress("merging", 0, 1, `Mesclando ${totalPartes} partes em disco`);
-      await mergePdfParts(partPaths, mergingPath);
+      await mergePdfParts(buildMergeOrder(partPaths, await resolveAttachmentPlan()), mergingPath);
       renameSync(mergingPath, pdfPath);
       temporaryPaths.delete(mergingPath);
       emitProgress("merging", 1, 1, `Mesclagem de ${totalPartes} partes concluída`);
@@ -684,8 +720,22 @@ async function processReport(options: any): Promise<void> {
     const browser = await getBrowser();
     step("🌐", "Chrome pronto. Renderizando PDF (pode demorar em documentos grandes)…");
 
-    const pdfBytes = await renderHtmlFileToPdf(browser, htmlPath, pdfPath, disableHeaderFooter);
+    let pdfBytes = await renderHtmlFileToPdf(browser, htmlPath, pdfPath, disableHeaderFooter);
     step("💽", `PDF salvo: ${pdfPath} (${fmtBytes(pdfBytes)}).`);
+
+    // Passada única com PDFs anexados: junta o relatório com eles, na ordem do plano.
+    if (attachmentPlan && hasPdfAttachments(attachmentPlan)) {
+      const anexos = await resolveAttachmentPlan();
+      if (hasPdfAttachments(anexos)) {
+        const mergingPath = `${reportDir}/${jobId}.merging.pdf`;
+        temporaryPaths.add(mergingPath);
+        await mergePdfParts(buildMergeOrder([pdfPath], anexos), mergingPath);
+        renameSync(mergingPath, pdfPath);
+        temporaryPaths.delete(mergingPath);
+        pdfBytes = statSync(pdfPath).size;
+        step("📎", `PDFs anexados juntados ao relatório (${fmtBytes(pdfBytes)}).`);
+      }
+    }
 
     stopHeartbeat();
     canal.postMessage({ jobId, success: true, result: { parts: 1, bytes: pdfBytes } });

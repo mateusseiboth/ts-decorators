@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 
 import Handlebars from "handlebars";
 
+import { formatExtenso } from "../src/report/extenso";
 import { REPORT_HELPER_DOCS, registerDefaultReportHelpers } from "../src/report/templateHelpers";
 
 function compile(template: string, data: unknown = {}): string {
@@ -75,6 +76,12 @@ describe("templateHelpers — cálculo", () => {
     expect(compile('{{math 10 "/" 0}}')).toBe("0");
   });
 
+  test("count sem lista lê o campo count do contexto", () => {
+    expect(compile("{{count}}", { count: 7 })).toBe("7");
+    expect(compile("{{count}}", {})).toBe("0");
+    expect(compile("{{count ausente}}", { count: 7 })).toBe("0");
+  });
+
   test("index1 converte @index para base 1", () => {
     expect(compile("{{#each itens}}{{index1 @index}}{{/each}}", { itens })).toBe("123");
   });
@@ -103,6 +110,116 @@ describe("templateHelpers — lógica (ifCond)", () => {
   });
 });
 
+describe("templateHelpers — formatCpfCnpj", () => {
+  test("formata CPF com 11 dígitos", () => {
+    expect(compile("{{formatCpfCnpj doc}}", { doc: "12345678901" })).toBe("123.456.789-01");
+  });
+
+  test("formata CNPJ com 14 dígitos, ignorando a máscara de origem", () => {
+    expect(compile("{{formatCpfCnpj doc}}", { doc: "12.345.678/0001-90" })).toBe(
+      "12.345.678/0001-90",
+    );
+    expect(compile("{{formatCpfCnpj doc}}", { doc: "12345678000190" })).toBe("12.345.678/0001-90");
+  });
+
+  test("aceita número", () => {
+    expect(compile("{{formatCpfCnpj doc}}", { doc: 12345678901 })).toBe("123.456.789-01");
+  });
+
+  test("devolve o valor original quando não é CPF nem CNPJ", () => {
+    expect(compile("{{formatCpfCnpj doc}}", { doc: "123-45" })).toBe("123-45");
+    expect(compile("{{formatCpfCnpj doc}}", { doc: null })).toBe("");
+    expect(compile("{{formatCpfCnpj doc}}", {})).toBe("");
+  });
+});
+
+describe("templateHelpers — extenso", () => {
+  const casos: readonly (readonly [number, string])[] = [
+    [0, "zero real"],
+    [1, "um real"],
+    [2, "dois reais"],
+    [0.5, "cinquenta centavos"],
+    [0.01, "um centavo"],
+    [1.01, "um real e um centavo"],
+    [21, "vinte e um reais"],
+    [100, "cem reais"],
+    [101, "cento e um reais"],
+    [150.5, "cento e cinquenta reais e cinquenta centavos"],
+    [1000, "mil reais"],
+    [1001, "mil e um reais"],
+    [1100, "mil e cem reais"],
+    [1234, "mil duzentos e trinta e quatro reais"],
+    [2000, "dois mil reais"],
+    [1000000, "um milhão de reais"],
+    [2500000, "dois milhões e quinhentos mil reais"],
+    [1000001, "um milhão e um reais"],
+    [3000000000, "três bilhões de reais"],
+    [
+      1234567.89,
+      "um milhão duzentos e trinta e quatro mil quinhentos e sessenta e sete reais e oitenta e nove centavos",
+    ],
+    [-2, "menos dois reais"],
+    [1.999, "dois reais"],
+  ];
+
+  for (const [valor, esperado] of casos) {
+    test(`${valor} vira "${esperado}"`, () => {
+      expect(formatExtenso(valor)).toBe(esperado);
+    });
+  }
+
+  test("o helper escreve o valor por extenso e aceita texto numérico", () => {
+    expect(compile("{{extenso valor}}", { valor: 150.5 })).toBe(
+      "cento e cinquenta reais e cinquenta centavos",
+    );
+    expect(compile("{{extenso valor}}", { valor: "2" })).toBe("dois reais");
+  });
+
+  test("acima da casa dos bilhões vira texto vazio", () => {
+    expect(formatExtenso(1e12)).toBe("");
+    expect(formatExtenso(999999999999.999)).toBe("");
+  });
+
+  test("valor não numérico vira texto vazio", () => {
+    expect(compile("{{extenso valor}}", { valor: "abc" })).toBe("");
+    expect(compile("{{extenso valor}}", {})).toBe("");
+    expect(compile("{{extenso valor}}", { valor: null })).toBe("");
+  });
+});
+
+describe("templateHelpers — groupBy", () => {
+  const vendas = [
+    { categoria: "B", nome: "b1", info: { setor: "X" } },
+    { categoria: "A", nome: "a1", info: { setor: "Y" } },
+    { categoria: "B", nome: "b2", info: { setor: "X" } },
+  ];
+
+  test("agrupa na ordem da primeira aparição com key, items e count", () => {
+    const tpl =
+      '{{#groupBy vendas "categoria"}}[{{key}}:{{count}}:{{#each items}}{{nome}}{{/each}}]{{/groupBy}}';
+    expect(compile(tpl, { vendas })).toBe("[B:2:b1b2][A:1:a1]");
+  });
+
+  test("resolve caminho com ponto", () => {
+    expect(
+      compile('{{#groupBy vendas "info.setor"}}{{key}}={{count}};{{/groupBy}}', { vendas }),
+    ).toBe("X=2;Y=1;");
+  });
+
+  test("expõe @index, @first e @last", () => {
+    const tpl =
+      '{{#groupBy vendas "categoria"}}{{@index}}{{#if @first}}f{{/if}}{{#if @last}}l{{/if}};{{/groupBy}}';
+    expect(compile(tpl, { vendas })).toBe("0f;1l;");
+  });
+
+  test("lista vazia ou ausente cai no else", () => {
+    const tpl = '{{#groupBy vendas "categoria"}}{{key}}{{else}}sem dados{{/groupBy}}';
+    expect(compile(tpl, { vendas: [] })).toBe("sem dados");
+    expect(compile(tpl, {})).toBe("sem dados");
+    expect(compile(tpl, { vendas: "x" })).toBe("sem dados");
+  });
+});
+
 describe("templateHelpers — catálogo do Studio", () => {
   test("todo helper documentado está registrado e o snippet compila", () => {
     const hbs = Handlebars.create();
@@ -115,6 +232,7 @@ describe("templateHelpers — catálogo do Studio", () => {
       a: 1,
       b: 2,
       itens,
+      documento: "12345678901",
     };
     for (const doc of REPORT_HELPER_DOCS) {
       expect((hbs as any).helpers[doc.name]).toBeDefined();

@@ -14,6 +14,7 @@
 
 import "reflect-metadata";
 import { eventBus, type EventHandler } from "../events/eventBus";
+import { appendMetadataItem } from "./_metadataList";
 import { isDecoratorContext, warnLegacy } from "./_proxy";
 
 const LISTENERS_KEY = "events:listeners";
@@ -38,9 +39,7 @@ interface Subscription {
 const _subscriptions = new WeakMap<object, Subscription[]>();
 
 function addListenerMeta(ctor: any, meta: ListenerMeta): void {
-  const list: ListenerMeta[] = Reflect.getMetadata(LISTENERS_KEY, ctor) ?? [];
-  list.push(meta);
-  Reflect.defineMetadata(LISTENERS_KEY, list, ctor);
+  appendMetadataItem(LISTENERS_KEY, ctor, meta);
 }
 
 /** Assina `handler` e guarda o vínculo para o {@link disposeListeners}. */

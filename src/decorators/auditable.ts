@@ -1,15 +1,18 @@
 /**
- * @Auditable - Decorator para registrar modificações em registros.
+ * @Auditable - Decorator para registrar modificações (e, se pedido, leituras) de registros.
  *
  * Intercepta métodos de escrita (create, update, deleteById) e grava um log
  * de auditoria na tabela `audit_log` após a operação ser concluída com sucesso.
+ * Com `read`, também registra QUEM LEU (LGPD): ação `READ`, sem o conteúdo lido.
  *
  * Uso:
  *   @Auditable
+ *   @Auditable({ read: true })                 // + leitura do getById
+ *   @Auditable({ read: ["getById", "get"] })   // + leitura da listagem
  *   class MeuController extends BaseController { ... }
  *
  * O decorator espera que o controller tenha:
- *   - `this.DAO.tx` (Prisma TransactionClient) para gravar no banco
+ *   - `this.DAO.tx` (Prisma TransactionClient) para gravar a escrita no banco
  *   - Os métodos recebam (req: Request, res: Response) como padrão Express
  *
  */
@@ -17,12 +20,17 @@
 import type { Request, Response } from "express";
 
 import { logger } from "../functions/logger";
-import { isPrisma8Tx, ormCollection, runStatement } from "../prisma8/client";
+import { markBodyCapture } from "../observability/bodyCapture";
+import { isPrisma8Tx, ormCollection } from "../prisma8/client";
+import { insertAuditLog } from "./_auditLogSql";
+import { enqueueAuditRead, flushAuditReads } from "./_auditReads";
 import { wrapMetodosDaClasse } from "./_method";
 import { isDecoratorContext, warnLegacy } from "./_proxy";
 
+export { flushAuditReads };
+
 export interface AuditEntry {
-  action: "CREATE" | "UPDATE" | "DELETE";
+  action: "CREATE" | "UPDATE" | "DELETE" | "READ";
   entity: string;
   entityId: string | null;
   userId: string;
@@ -36,8 +44,12 @@ export interface AuditEntry {
 
 type AuditStorageAdapter = (entry: AuditEntry, tx?: any) => Promise<void>;
 
-// Storage adapter padrão: grava via Prisma na tabela audit_log
+/**
+ * Destino padrão: a escrita vai na transação da requisição (rollback desfaz o registro junto com a
+ * escrita); a leitura vai para o lote, que grava numa transação própria.
+ */
 const defaultStorage: AuditStorageAdapter = async (entry: AuditEntry, tx?: any) => {
+  if (entry.action === "READ") return enqueueAuditRead(entry);
   if (!tx) return;
   try {
     await insertAuditLog(tx, entry);
@@ -47,55 +59,6 @@ const defaultStorage: AuditStorageAdapter = async (entry: AuditEntry, tx?: any) 
   }
 };
 
-const AUDIT_INSERT = `INSERT INTO "audit_log" ("action", "entity", "entity_id", "user_id", "entidade", "before", "after", "timestamp", "method", "ip")`;
-
-function sqlLiteral(value: unknown): string {
-  if (value === null || value === undefined) return "NULL";
-  if (typeof value === "number") return String(value);
-  if (value instanceof Date) return `'${value.toISOString()}'`;
-  const text =
-    typeof value === "object" ? JSON.stringify(value) : String(value as string | boolean | bigint);
-  return `'${text.replace(/'/g, "''")}'`;
-}
-
-/**
- * Prisma 7 vai parametrizado; no Prisma 8 o lado cru sem parâmetros exige literais, então os
- * valores são escapados aqui (aspas dobradas) e o JSON entra com cast explícito.
- */
-async function insertAuditLog(tx: any, entry: AuditEntry): Promise<void> {
-  if (!isPrisma8Tx(tx)) {
-    await tx.$executeRawUnsafe(
-      `${AUDIT_INSERT} VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7::jsonb, $8, $9, $10)`,
-      entry.action,
-      entry.entity,
-      entry.entityId,
-      entry.userId,
-      entry.entidade,
-      JSON.stringify(entry.before),
-      JSON.stringify(entry.after),
-      entry.timestamp,
-      entry.method,
-      entry.ip,
-    );
-    return;
-  }
-  const values = [
-    entry.action,
-    entry.entity,
-    entry.entityId,
-    entry.userId,
-    entry.entidade,
-    JSON.stringify(entry.before),
-    JSON.stringify(entry.after),
-    entry.timestamp,
-    entry.method,
-    entry.ip,
-  ].map(sqlLiteral);
-  values[5] = `${values[5]}::jsonb`;
-  values[6] = `${values[6]}::jsonb`;
-  await runStatement(tx, `${AUDIT_INSERT} VALUES (${values.join(", ")})`);
-}
-
 // Configuração global do adapter de storage
 let _storageAdapter: AuditStorageAdapter = defaultStorage;
 
@@ -103,8 +66,13 @@ export function setAuditStorage(adapter: AuditStorageAdapter) {
   _storageAdapter = adapter;
 }
 
+/** Volta para o destino padrão (testes). */
+export function resetAuditStorage(): void {
+  _storageAdapter = defaultStorage;
+}
+
 // Mapeamento de nomes de método → ação
-const METHOD_ACTION_MAP: Record<string, AuditEntry["action"]> = {
+const METHOD_ACTION_MAP: Record<string, Exclude<AuditEntry["action"], "READ">> = {
   create: "CREATE",
   update: "UPDATE",
   deleteById: "DELETE",
@@ -125,12 +93,31 @@ export interface AuditableOptions {
    * descobrir o id de um CREATE. Default: `true` (custa só um closure).
    */
   captureResponse?: boolean;
+  /**
+   * Registra também a LEITURA (LGPD: quem consultou folha, salário, CPF). Default: `false`.
+   *
+   * `true` audita o `getById`. Uma lista nomeia os métodos: `["getById", "get"]` inclui a
+   * listagem. A entrada tem ação `READ`, o id lido e quem leu, nunca o conteúdo: o log não pode
+   * virar uma segunda cópia do dado pessoal. A listagem gera UMA entrada por requisição, com o
+   * filtro (`req.query`) em `after`, e não uma por linha devolvida.
+   */
+  read?: boolean | string[];
 }
 
 const DEFAULT_AUDIT_OPTIONS: Required<AuditableOptions> = {
   captureBefore: true,
   captureResponse: true,
+  read: false,
 };
+
+/** O que cada valor de `read` audita: `true` é o detalhe de um registro. */
+const READ_METHODS_BY_FLAG: Record<"true" | "false", readonly string[]> = {
+  true: ["getById"],
+  false: [],
+};
+
+const readMethodsOf = (read: AuditableOptions["read"]): readonly string[] =>
+  Array.isArray(read) ? read : READ_METHODS_BY_FLAG[String(read === true) as "true" | "false"];
 
 function modelNameOf(instance: any, className: string): string {
   return (instance.constructor as any).modelName || className.replace("Controller", "");
@@ -194,6 +181,104 @@ export function Auditable(...args: any[]): any {
 
 const MARCA_AUDITABLE = Symbol("ts-decorators:auditable");
 
+/** Quem, de onde e em qual registro: o que a escrita e a leitura registram igual. */
+function buildEntryBase(req: Request, res: Response, className: string, methodName: string) {
+  return {
+    entity: className.replace("Controller", ""),
+    userId: res.locals?.userInfo?.id || "unknown",
+    entidade: Number(res.locals?.entity || 0),
+    timestamp: new Date(),
+    method: `${className}.${methodName}`,
+    ip: req.ip || req.socket?.remoteAddress || "unknown",
+  };
+}
+
+/** Entrega sem esperar e sem deixar o destino derrubar quem chamou, nem lançando na hora. */
+function dispatchEntry(entry: AuditEntry, tx?: any): void {
+  void Promise.resolve()
+    .then(() => _storageAdapter(entry, tx))
+    .catch(() => {});
+}
+
+const hasKeys = (value: unknown): boolean =>
+  !!value && typeof value === "object" && Object.keys(value).length > 0;
+
+/**
+ * A leitura registra o id lido e, na listagem, o filtro: nunca o corpo da resposta. Não intercepta
+ * o `res.json` e não passa a transação: o registro é gravado mesmo que ela sofra rollback.
+ */
+function buildRead(className: string, methodName: string, original: Function): Function {
+  return async function (this: any, req: Request, res: Response, ...rest: any[]) {
+    const result = await original.call(this, req, res, ...rest);
+    // Leitura recusada (404, 403...) não entregou dado nenhum.
+    if (res.statusCode >= 400) return result;
+
+    // No Express 5 o parâmetro pode chegar como lista (`/:id+`).
+    const id: string | string[] | undefined = req.params?.id;
+    const entityId = Array.isArray(id) ? id.join("/") : (id ?? null);
+    const query = entityId === null && hasKeys(req.query) ? { query: req.query } : null;
+    dispatchEntry({
+      ...buildEntryBase(req, res, className, methodName),
+      action: "READ",
+      entityId,
+      before: null,
+      after: query,
+    });
+    return result;
+  };
+}
+
+function buildWrite(
+  className: string,
+  methodName: string,
+  action: Exclude<AuditEntry["action"], "READ">,
+  original: Function,
+  opts: Required<AuditableOptions>,
+): Function {
+  return async function (this: any, req: Request, res: Response, ...rest: any[]) {
+    // Escrita auditada leva o corpo inteiro (credenciais mascaradas) para o span do `observeHttp`.
+    markBodyCapture(req);
+    const entityId = req.params?.id || this.data?.id || null;
+    const tx = this.DAO?.tx;
+
+    const before =
+      opts.captureBefore && (action === "UPDATE" || action === "DELETE")
+        ? await readBefore(this, className, entityId, tx)
+        : null;
+
+    // Intercepta res.json/res.end para capturar o resultado
+    let capturedResponse: any = null;
+    if (opts.captureResponse) {
+      const originalJson = res.json.bind(res);
+      res.json = function (body: any) {
+        capturedResponse = body;
+        return originalJson(body);
+      };
+    }
+
+    const result = await original.call(this, req, res, ...rest);
+
+    // Grava auditoria após sucesso (não-bloqueante para a resposta).
+    // O que chegou no body já descreve a mudança — não precisa reler o banco.
+    const after =
+      action === "DELETE" ? null : (capturedResponse?.data ?? this.data ?? req.body ?? null);
+    const finalEntityId = entityId || capturedResponse?.data?.id || capturedResponse?.id || null;
+
+    dispatchEntry(
+      {
+        ...buildEntryBase(req, res, className, methodName),
+        action,
+        entityId: finalEntityId,
+        before,
+        after,
+      },
+      tx,
+    );
+
+    return result;
+  };
+}
+
 function applyAuditable<T extends { new (...args: any[]): any }>(
   constructor: T,
   context: ClassDecoratorContext | undefined,
@@ -203,60 +288,14 @@ function applyAuditable<T extends { new (...args: any[]): any }>(
     warnLegacy("Auditable");
   }
   const className = constructor.name;
+  const readMethods = readMethodsOf(opts.read);
 
-  wrapMetodosDaClasse(constructor, MARCA_AUDITABLE, ({ name: methodName, original }) => {
-    const action = METHOD_ACTION_MAP[methodName];
-    if (!action) return undefined;
-    const originalMethod = original;
-
-    return async function (this: any, req: Request, res: Response, ...rest: any[]) {
-      const entityId = req.params?.id || this.data?.id || null;
-      const userId = res.locals?.userInfo?.id || "unknown";
-      const entidade = Number(res.locals?.entity || 0);
-      const ip = req.ip || req.socket?.remoteAddress || "unknown";
-      const tx = this.DAO?.tx;
-
-      const before =
-        opts.captureBefore && (action === "UPDATE" || action === "DELETE")
-          ? await readBefore(this, className, entityId, tx)
-          : null;
-
-      // Intercepta res.json/res.end para capturar o resultado
-      let capturedResponse: any = null;
-      if (opts.captureResponse) {
-        const originalJson = res.json.bind(res);
-        res.json = function (body: any) {
-          capturedResponse = body;
-          return originalJson(body);
-        };
-      }
-
-      const result = await originalMethod.call(this, req, res, ...rest);
-
-      // Grava auditoria após sucesso (não-bloqueante para a resposta).
-      // O que chegou no body já descreve a mudança — não precisa reler o banco.
-      const after =
-        action === "DELETE" ? null : (capturedResponse?.data ?? this.data ?? req.body ?? null);
-      const finalEntityId = entityId || capturedResponse?.data?.id || capturedResponse?.id || null;
-
-      const entry: AuditEntry = {
-        action,
-        entity: className.replace("Controller", ""),
-        entityId: finalEntityId,
-        userId,
-        entidade,
-        before,
-        after,
-        timestamp: new Date(),
-        method: `${className}.${methodName}`,
-        ip,
-      };
-
-      // Fire and forget — não bloqueia a resposta
-      _storageAdapter(entry, tx).catch(() => {});
-
-      return result;
-    };
+  // A escrita vence: um método de escrita nomeado em `read` continua auditado como escrita.
+  wrapMetodosDaClasse(constructor, MARCA_AUDITABLE, ({ name, original }) => {
+    const action = METHOD_ACTION_MAP[name];
+    if (action) return buildWrite(className, name, action, original, opts);
+    if (readMethods.includes(name)) return buildRead(className, name, original);
+    return undefined;
   });
 
   return constructor;

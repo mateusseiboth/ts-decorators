@@ -116,9 +116,9 @@ describe("estatísticas das filas", () => {
 
     expect(listQueues().sort()).toEqual(["com-consumidor", "sem-consumidor"]);
     const stats = await getQueueStats();
-    const comConsumidor = stats.find((s) => s.name === "com-consumidor");
+    const withConsumidor = stats.find((s) => s.name === "com-consumidor");
 
-    expect(comConsumidor).toEqual({
+    expect(withConsumidor).toEqual({
       name: "com-consumidor",
       hasProcessor: true,
       running: true,
@@ -135,14 +135,14 @@ describe("estatísticas das filas", () => {
   });
 
   test("adaptador sem countByStatus conta pelo findMany", async () => {
-    const semContagem: QueueAdapter = {
+    const withoutContagem: QueueAdapter = {
       findMany: (filter) => (filter?.status === "pending" ? [{} as QueueJob, {} as QueueJob] : []),
       findUnique: () => null,
       create: (job) => job,
       update: () => null,
       delete: () => {},
     };
-    registerQueue("legada", semContagem);
+    registerQueue("legada", withoutContagem);
 
     const [stats] = await getQueueStats();
     expect(stats.counts).toEqual({ pending: 2, processing: 0, completed: 0, failed: 0 });

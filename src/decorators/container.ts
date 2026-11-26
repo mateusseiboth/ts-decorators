@@ -19,8 +19,10 @@
 import "reflect-metadata";
 import { logger } from "../functions/logger";
 import { hasCronJobs, startCronJobs, stopCronJobs } from "./cron";
+import { disposeHealthChecks, initHealthChecks } from "./healthCheck";
 import { disposeListeners, hasListeners, initListeners } from "./listen";
 import { initProcessors } from "./processor";
+import { disposeShutdownHooks, initShutdownHooks } from "./shutdown";
 
 const DI_PARAMTYPES_KEY = "di:paramtypes";
 const DI_SCOPE_KEY = "di:scope";
@@ -57,10 +59,13 @@ class Container {
     const instance = new target(...injections);
 
     this.writeCache(target, scope, instance);
-    // Assina @Listen, agenda @Cron e inicia @Processor (no-op se não houver nenhum).
+    // Assina @Listen, agenda @Cron, inicia @Processor e registra @OnShutdown e @HealthCheck
+    // (no-op se não houver nenhum).
     initListeners(instance);
     startCronJobs(instance);
     initProcessors(instance);
+    initShutdownHooks(instance as object);
+    initHealthChecks(instance as object);
     warnIfLeaky(target, scope, instance);
     return instance;
   }
@@ -69,6 +74,8 @@ class Container {
   private dispose(instance: any): void {
     disposeListeners(instance);
     stopCronJobs(instance);
+    disposeShutdownHooks(instance);
+    disposeHealthChecks(instance);
   }
 
   private resolveScopeKey(target: any): string {

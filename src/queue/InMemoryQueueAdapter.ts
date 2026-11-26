@@ -8,9 +8,14 @@
 import {
   emptyQueueStatusCounts,
   type QueueAdapter,
+  type QueueTenantLimit,
   type QueueJob,
+  type QueuePerTenantQuery,
   type QueueStatusCounts,
 } from "./adapter";
+import { countPerTenant, selectPerTenant } from "./perTenant";
+
+const ATIVOS = new Set<QueueJob["status"]>(["pending", "processing"]);
 
 export class InMemoryQueueAdapter<T = any> implements QueueAdapter<T> {
   private readonly store = new Map<string, QueueJob<T>>();
@@ -40,11 +45,35 @@ export class InMemoryQueueAdapter<T = any> implements QueueAdapter<T> {
     return { ...updated };
   }
 
-  claim(id: string, lockedAt: number): boolean {
+  claim(id: string, lockedAt: number, limite?: QueueTenantLimit): boolean {
     const current = this.store.get(id);
     if (current?.status !== "pending") return false;
-    this.store.set(id, { ...current, status: "processing", lockedAt });
+    if (this.isTenantCheio(limite)) return false;
+    const tenant = limite ? { tenant: limite.tenant } : {};
+    this.store.set(id, { ...current, ...tenant, status: "processing", lockedAt });
     return true;
+  }
+
+  findPendingPerTenant(query: QueuePerTenantQuery): Array<QueueJob<T>> {
+    this.saveTenants(query.tenantOf);
+    const emProcessamento = countPerTenant(this.findMany({ status: "processing" }));
+    return selectPerTenant(this.findMany({ status: "pending" }), emProcessamento, query).map(
+      (job) => ({ ...job }),
+    ) as Array<QueueJob<T>>;
+  }
+
+  /** Grava o tenant do job pendente ou em processamento que ainda não a tem. */
+  private saveTenants(tenantOf: QueuePerTenantQuery["tenantOf"]): void {
+    for (const job of this.store.values()) {
+      if (job.tenant !== undefined || !ATIVOS.has(job.status)) continue;
+      this.store.set(job.id, { ...job, tenant: tenantOf(job.payload) });
+    }
+  }
+
+  private isTenantCheio(limite: QueueTenantLimit | undefined): boolean {
+    if (!limite) return false;
+    const emProcessamento = this.findMany({ status: "processing", tenant: limite.tenant });
+    return emProcessamento.length >= limite.concurrency;
   }
 
   delete(id: string): void {

@@ -4,6 +4,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
+import { Field, InitFields } from "../src/decorators/initFields";
 import { AuditLogger } from "../src/storage/AuditLogger";
 
 describe("AuditLogger", () => {
@@ -11,10 +12,10 @@ describe("AuditLogger", () => {
   let dbPath: string;
 
   beforeEach(() => {
-    dir = mkdtempSync(path.join(tmpdir(), "qs-audit-"));
+    dir = mkdtempSync(path.join(tmpdir(), "tsd-audit-"));
     dbPath = path.join(dir, "audit.db");
     AuditLogger.reset();
-    AuditLogger.configure({ path: dbPath, flushIntervalMs: 5 });
+    AuditLogger.configure({ path: dbPath, rotate: "none", flushIntervalMs: 5 });
   });
 
   afterEach(() => {
@@ -58,6 +59,26 @@ describe("AuditLogger", () => {
     expect(rows().length).toBe(1);
   });
 
+  test("campo cifrado de qualquer model (@Field encrypted) é mascarado pelo nome", () => {
+    @InitFields
+    class CertificadoAuditadoModel {
+      @Field({ encrypted: true }) senhaCertificadoAuditado!: string;
+    }
+    void CertificadoAuditadoModel;
+
+    const logger = AuditLogger.getInstance();
+    logger.log({
+      method: "POST",
+      url: "/certificados",
+      requestBody: { nome: "A1", senhaCertificadoAuditado: "aberta" },
+    });
+    logger.flush();
+
+    const body = JSON.parse(rows()[0].request_body);
+    expect(body.senhaCertificadoAuditado).toBe("***");
+    expect(body.nome).toBe("A1");
+  });
+
   test("campo sensível continua mascarado", () => {
     const logger = AuditLogger.getInstance();
     logger.log(entry("/a"));
@@ -80,7 +101,7 @@ describe("AuditLogger", () => {
 
   test("o buffer é descarregado ao atingir o lote máximo", () => {
     AuditLogger.reset();
-    AuditLogger.configure({ path: dbPath, flushIntervalMs: 60_000, maxBatch: 3 });
+    AuditLogger.configure({ path: dbPath, rotate: "none", flushIntervalMs: 60_000, maxBatch: 3 });
     const logger = AuditLogger.getInstance();
     logger.log(entry("/1"));
     logger.log(entry("/2"));
@@ -149,7 +170,12 @@ describe("AuditLogger", () => {
 
     test("corpo gigante é truncado — SQLite não aceita TEXT sem limite", () => {
       AuditLogger.reset();
-      AuditLogger.configure({ path: dbPath, flushIntervalMs: 60_000, maxTextBytes: 500 });
+      AuditLogger.configure({
+        path: dbPath,
+        rotate: "none",
+        flushIntervalMs: 60_000,
+        maxTextBytes: 500,
+      });
       const logger = AuditLogger.getInstance();
 
       logger.log({ method: "GET", url: "/grande", responseBody: { linhas: "x".repeat(5_000) } });
@@ -163,7 +189,12 @@ describe("AuditLogger", () => {
 
     test("corpo dentro do teto não é truncado", () => {
       AuditLogger.reset();
-      AuditLogger.configure({ path: dbPath, flushIntervalMs: 60_000, maxTextBytes: 5_000 });
+      AuditLogger.configure({
+        path: dbPath,
+        rotate: "none",
+        flushIntervalMs: 60_000,
+        maxTextBytes: 5_000,
+      });
       const logger = AuditLogger.getInstance();
 
       logger.log({ method: "GET", url: "/pequeno", responseBody: { ok: true } });
@@ -190,6 +221,116 @@ describe("AuditLogger", () => {
       const ids = rows().map((r) => r.id as string);
       expect(ids.every((id) => id[14] === "7")).toBe(true);
       expect([...ids].sort()).toEqual(ids);
+    });
+  });
+
+  describe("chaves sensíveis", () => {
+    test("authorization e cookie são mascarados por padrão, inclusive aninhados", () => {
+      const logger = AuditLogger.getInstance();
+      logger.log({
+        method: "POST",
+        url: "/proxy",
+        requestBody: {
+          Authorization: "Bearer abc",
+          headers: { cookie: "sid=1", lista: [{ AUTHORIZATION: "Basic x", ok: 1 }] },
+        },
+        responseBody: { Cookie: "sid=2" },
+      });
+      logger.flush();
+
+      const row = rows()[0];
+      const body = JSON.parse(row.request_body);
+      expect(body.Authorization).toBe("***");
+      expect(body.headers.cookie).toBe("***");
+      expect(body.headers.lista[0].AUTHORIZATION).toBe("***");
+      expect(body.headers.lista[0].ok).toBe(1);
+      expect(JSON.parse(row.response_body).Cookie).toBe("***");
+    });
+
+    test("sensitiveKeys soma chaves às padrão, sem diferenciar maiúsculas", () => {
+      AuditLogger.reset();
+      AuditLogger.configure({
+        path: dbPath,
+        rotate: "none",
+        flushIntervalMs: 5,
+        sensitiveKeys: ["CPF", "chavePix"],
+      });
+      const logger = AuditLogger.getInstance();
+      logger.log({
+        method: "POST",
+        url: "/pessoas",
+        requestBody: {
+          cpf: "123",
+          dados: { CHAVEPIX: "x@y" },
+          senha: "s",
+          authorization: "a",
+          nome: "Ana",
+        },
+      });
+      logger.flush();
+
+      expect(JSON.parse(rows()[0].request_body)).toEqual({
+        cpf: "***",
+        dados: { CHAVEPIX: "***" },
+        senha: "***",
+        authorization: "***",
+        nome: "Ana",
+      });
+    });
+
+    test("sem sensitiveKeys a lista padrão continua valendo inteira", () => {
+      const logger = AuditLogger.getInstance();
+      const padrao = {
+        senha: "1",
+        password: "2",
+        token: "3",
+        secret: "4",
+        access_token: "5",
+        refresh_token: "6",
+        inviteUrl: "7",
+        authorization: "8",
+        cookie: "9",
+      };
+      logger.log({ method: "POST", url: "/padrao", requestBody: { ...padrao, cpf: "123" } });
+      logger.flush();
+
+      const body = JSON.parse(rows()[0].request_body);
+      for (const chave of Object.keys(padrao)) expect(body[chave]).toBe("***");
+      expect(body.cpf).toBe("123");
+    });
+
+    test("a chave extra de uma configuração não sobra depois do reset", () => {
+      AuditLogger.reset();
+      AuditLogger.configure({
+        path: dbPath,
+        rotate: "none",
+        flushIntervalMs: 5,
+        sensitiveKeys: ["cpf"],
+      });
+      AuditLogger.getInstance();
+      AuditLogger.reset();
+      AuditLogger.configure({ path: dbPath, rotate: "none", flushIntervalMs: 5 });
+
+      const logger = AuditLogger.getInstance();
+      logger.log({ method: "POST", url: "/depois", requestBody: { cpf: "123" } });
+      logger.flush();
+
+      expect(JSON.parse(rows()[0].request_body).cpf).toBe("123");
+    });
+
+    test("params e query continuam sem máscara", () => {
+      const logger = AuditLogger.getInstance();
+      logger.log({
+        method: "GET",
+        url: "/q",
+        requestParams: { token: "p" },
+        requestQuery: { authorization: "q" },
+      });
+      logger.flush();
+
+      const row = rows()[0];
+      expect(JSON.parse(row.request_params).token).toBe("p");
+      expect(JSON.parse(row.request_query).authorization).toBe("q");
     });
   });
 

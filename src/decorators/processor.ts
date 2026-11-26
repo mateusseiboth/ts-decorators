@@ -11,10 +11,15 @@
  * Uso:
  *   @Processor("reports", { concurrency: 3 })
  *   async handle(payload) { ... }   // payload de cada job
+ *
+ *   // Cada município roda no máximo 2 jobs; a vaga livre vai para o município com menos rodando.
+ *   @Processor("iptu", { concurrency: 4, perTenant: { concurrency: 2 } })
  */
 
 import "reflect-metadata";
+import { requirePerTenant, type PerTenantOptions } from "../queue/perTenant";
 import { registerProcessor, startProcessors } from "../queue/registry";
+import { appendMetadataItem } from "./_metadataList";
 import { isDecoratorContext, warnLegacy } from "./_proxy";
 
 const PROCESSOR_KEY = "queue:processors";
@@ -28,14 +33,14 @@ export interface ProcessorOptions {
   /**
    * Extrai a chave de serialização do payload. Jobs com a MESMA chave rodam no máx.
    * `maxPerKey` em paralelo (default 1: nunca em paralelo); o job que excede o limite
-   * da chave fica "pending" e não ocupa vaga. Ex.: `keyOf: (p) => p.ctx.entCodigo`
-   * serializa por entidade.
+   * da chave fica "pending" e não ocupa vaga. Ex.: `keyOf: (p) => p.ctx.tenant`
+   * serializa por tenant.
    */
   keyOf?: (payload: any) => string | number | undefined;
   /**
    * Quantos jobs da MESMA chave podem estar em voo ao mesmo tempo. Default: 1. Só vale
    * com `keyOf`. Ex.: `{ keyOf: (p) => p.ctx.entidade, maxPerKey: 3 }` deixa cada
-   * entidade rodar até 3 juntos, e a `concurrency` continua sendo o teto da fila.
+   * tenant rodar até 3 juntos, e a `concurrency` continua sendo o teto da fila.
    */
   maxPerKey?: number;
   /**
@@ -43,6 +48,12 @@ export interface ProcessorOptions {
    * caiu) e voltar para a fila. Default: 60000. Nunca menos que três ciclos de `pollMs`.
    */
   staleAfterMs?: number;
+  /**
+   * Concorrência por tenant: no máximo `concurrency` jobs do mesmo tenant rodando, e o worker
+   * livre pega o job do tenant com menos jobs rodando, em vez de mais um do que já ocupa a fila.
+   * O tenant sai de `key` (default: o do payload, nos formatos comuns). Não combina com `keyOf`.
+   */
+  perTenant?: PerTenantOptions;
 }
 
 interface ProcessorMeta {
@@ -53,6 +64,7 @@ interface ProcessorMeta {
   keyOf?: (payload: any) => string | number | undefined;
   maxPerKey: number;
   staleAfterMs?: number;
+  perTenant?: PerTenantOptions;
 }
 
 function register(instance: any, meta: ProcessorMeta): void {
@@ -63,6 +75,7 @@ function register(instance: any, meta: ProcessorMeta): void {
     keyOf: meta.keyOf,
     maxPerKey: meta.maxPerKey,
     staleAfterMs: meta.staleAfterMs,
+    perTenant: meta.perTenant,
   });
 }
 
@@ -81,6 +94,8 @@ export function Processor(queueName: string, options?: ProcessorOptions) {
   const keyOf = options?.keyOf;
   const maxPerKey = Math.max(1, options?.maxPerKey ?? 1);
   const staleAfterMs = options?.staleAfterMs;
+  const perTenant = options?.perTenant;
+  requirePerTenant("@Processor", { perTenant, keyOf });
 
   return function (...args: any[]): any {
     // TC39 Stage 3: (method, context)
@@ -97,6 +112,7 @@ export function Processor(queueName: string, options?: ProcessorOptions) {
           keyOf,
           maxPerKey,
           staleAfterMs,
+          perTenant,
         });
         startProcessors();
       });
@@ -107,8 +123,7 @@ export function Processor(queueName: string, options?: ProcessorOptions) {
     warnLegacy("Processor");
     const target = args[0];
     const propertyKey = args[1] as string;
-    const list: ProcessorMeta[] = Reflect.getMetadata(PROCESSOR_KEY, target.constructor) ?? [];
-    list.push({
+    appendMetadataItem<ProcessorMeta>(PROCESSOR_KEY, target.constructor, {
       queueName,
       methodName: propertyKey,
       concurrency,
@@ -116,8 +131,8 @@ export function Processor(queueName: string, options?: ProcessorOptions) {
       keyOf,
       maxPerKey,
       staleAfterMs,
+      perTenant,
     });
-    Reflect.defineMetadata(PROCESSOR_KEY, list, target.constructor);
     return args[2];
   };
 }

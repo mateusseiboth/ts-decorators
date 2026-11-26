@@ -6,6 +6,15 @@ function hasRegistryExport(content: string) {
   return content.includes("export function registry") || content.includes("export const registry");
 }
 
+/** Recusa o arquivo do roteamento por pasta (rota ou `_middlewares`) com conteúdo suspeito. */
+export function assertWithoutForbiddenPatterns(content: string, filePath: string): void {
+  for (const pattern of forbiddenPatterns) {
+    if (content.includes(pattern)) {
+      throw new Error(["Arquivo suspeito detectado.", filePath, `Pattern: ${pattern}`].join("\n"));
+    }
+  }
+}
+
 export async function validateRouteFile(filePath: string) {
   const content = await fs.readFile(filePath, "utf-8");
 
@@ -13,11 +22,6 @@ export async function validateRouteFile(filePath: string) {
     return false;
   }
 
-  for (const pattern of forbiddenPatterns) {
-    if (content.includes(pattern)) {
-      throw new Error(["Arquivo suspeito detectado.", filePath, `Pattern: ${pattern}`].join("\n"));
-    }
-  }
-
+  assertWithoutForbiddenPatterns(content, filePath);
   return true;
 }
