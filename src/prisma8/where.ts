@@ -15,7 +15,17 @@
  */
 import { getPrisma8 } from "./client";
 import { encodeForCodec, type FieldCodec } from "./temporal";
-import { scopeOf, scopeOfRelation, withVariantFields, type ModelScope } from "./variant";
+import {
+  buildVariantRelationExists,
+  buildVariantRelationIsNull,
+  buildVariantRelationProxy,
+  scopeOf,
+  scopeOfRelation,
+  variantRelation,
+  withVariantFields,
+  type ModelScope,
+  type VariantRelation,
+} from "./variant";
 
 type Expression = unknown;
 
@@ -236,12 +246,52 @@ const LOGICAL_OPS: Record<string, LogicalOp> = {
   },
 };
 
+/**
+ * Relação de uma VARIANTE pedida na coleção da base (ver `variant.ts`): `null` é a chave nula; o
+ * objeto (ou `is`/`some`) é o `EXISTS` do relacionado; `isNot`/`none`, o `NOT EXISTS`.
+ */
+function variantRelationPredicate(
+  proxy: ModelProxy,
+  scope: ModelScope,
+  key: string,
+  rel: VariantRelation,
+  value: unknown,
+): Expression {
+  if (value === null) return buildVariantRelationIsNull(proxy, scope, rel);
+  if (!isPlainObject(value))
+    throw new Error("[@mateusseiboth/ts-decorators] Filtro de relação precisa ser objeto ou null.");
+  const condicao = (filtro: unknown) =>
+    isPlainObject(filtro) && Object.keys(filtro).length > 0
+      ? buildPredicate(
+          buildVariantRelationProxy(proxy, scope, key, rel) as ModelProxy,
+          filtro,
+          rel.alvo,
+        )
+      : undefined;
+  const existe = (filtro: unknown, negar = false) =>
+    filtro === null
+      ? buildVariantRelationIsNull(proxy, scope, rel, !negar)
+      : buildVariantRelationExists(proxy, scope, key, rel, condicao(filtro), negar);
+  const OPERADORES: Record<string, (filtro: unknown) => Expression> = {
+    is: (filtro) =>
+      filtro === null ? buildVariantRelationIsNull(proxy, scope, rel) : existe(filtro),
+    some: (filtro) => existe(filtro),
+    isNot: (filtro) => existe(filtro, true),
+    none: (filtro) => existe(filtro, true),
+  };
+  const explicitos = Object.keys(value).filter((op) => op in OPERADORES);
+  if (explicitos.length === 0) return existe(value);
+  return conjunction(explicitos.map((op) => OPERADORES[op]!(value[op])))!;
+}
+
 function fieldPredicates(
   proxy: ModelProxy,
   key: string,
   value: unknown,
   scope?: ModelScope,
 ): Expression[] {
+  const daVariante = variantRelation(scope, key);
+  if (daVariante) return [variantRelationPredicate(proxy, scope!, key, daVariante, value)];
   const target = proxy[key];
   if (isRelationProxy(target)) {
     return [relationPredicate(target, value, scopeOfRelation(scope, key))];
@@ -280,7 +330,7 @@ export function applyWhere<T extends Filterable>(collection: T, where: unknown):
   if (!isPlainObject(where) || Object.keys(where).length === 0) return collection;
   const scope = scopeOf(collection);
   return collection.where((proxy: ModelProxy) => {
-    const predicate = buildPredicate(proxy, where, scope);
+    const predicate = buildPredicate(withVariantFields(proxy, scope), where, scope);
     if (predicate === undefined)
       throw new Error("[@mateusseiboth/ts-decorators] Filtro sem condição efetiva.");
     return predicate;

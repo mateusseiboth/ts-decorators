@@ -12,7 +12,15 @@
  */
 
 import { getPrisma8Ast, type Prisma8Ast } from "./client";
-import { scopeOf, scopeOfRelation, withVariantFields, type ModelScope } from "./variant";
+import {
+  buildVariantRelationOrder,
+  scopeOf,
+  scopeOfRelation,
+  variantRelation,
+  withVariantFields,
+  type ModelScope,
+  type VariantRelation,
+} from "./variant";
 
 type Direction = "asc" | "desc";
 
@@ -184,11 +192,44 @@ function lambdaDaRelacao(
   };
 }
 
+/**
+ * Ordenação pela relação de uma VARIANTE, na coleção da base (ver `variant.ts`): a coluna do
+ * relacionado por subconsulta correlacionada pela chave estrangeira. A linha de outra variante
+ * fica sem valor: no fim na ordem crescente e no começo na decrescente (padrão do Postgres).
+ */
+function lambdaDaRelacaoDaVariante(
+  fieldName: string,
+  caminho: Record<string, unknown>,
+  campos: string[],
+  scope: ModelScope,
+  rel: VariantRelation,
+) {
+  return (proxy: Proxy) => {
+    const [campo, valor] = passoDoCaminho(fieldName, caminho);
+    if (isCaminho(valor)) {
+      throw new Error(
+        `[@mateusseiboth/ts-decorators] A relação "${fieldName}" da variante ordena por um campo do model relacionado, não por outra relação.`,
+      );
+    }
+    const expr = buildVariantRelationOrder(proxy, scope, fieldName, rel, campo);
+    const item = itemEmprestado(proxy, campos, expr, directionOf(campo, valor));
+    if (item !== undefined) return item;
+    throw new Error(
+      `[@mateusseiboth/ts-decorators] Não é possível ordenar pela relação "${fieldName}": nenhuma coluna do model é ordenável para montar o item de ordenação.`,
+    );
+  };
+}
+
 function lambdaFor(fieldName: string, value: unknown, campos: string[], scope?: ModelScope) {
-  if (isCaminho(value)) return lambdaDaRelacao(fieldName, value, campos, scope);
+  if (isCaminho(value)) {
+    const daVariante = variantRelation(scope, fieldName);
+    if (daVariante) return lambdaDaRelacaoDaVariante(fieldName, value, campos, scope!, daVariante);
+    return lambdaDaRelacao(fieldName, value, campos, scope);
+  }
   const direction = directionOf(fieldName, value);
   return (proxy: Proxy) => {
-    const field = proxy[fieldName];
+    // Campo de variante na coleção da base: a coluna vem pela tabela da base.
+    const field = withVariantFields(proxy, scope)[fieldName];
     if (typeof field?.asc === "function") return ORDER[direction](field);
 
     if (typeof field?.buildAst === "function") {

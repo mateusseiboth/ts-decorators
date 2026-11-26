@@ -4,6 +4,20 @@ Da versão mais nova para a mais antiga. As entradas marcadas como **base** vier
 de que este pacote nasceu (mesma origem, linhas separadas desde julho de 2026) e chegam aqui
 juntas na 2.0.0-rc.1. A versão entre parênteses é a da base, para quem compara as duas linhas.
 
+## 2.0.0-rc.42 (2026-11-26)
+
+- **Relação de uma variante na coleção da base (Prisma 8).** O inverso da rc.41: a lista é da
+  base discriminada (`TituloFinanceiro`) e a relação to-one é de uma variante na mesma tabela
+  (`TituloAPagar.fornecedor`). `orderBy=fornecedor.nome` e `fornecedor.nome=contains:x` passam a
+  funcionar no `executeOrmQuery`, no `applyOrderBy` e no `applyWhere`: a relação vira subconsulta
+  correlacionada pela coluna da chave estrangeira na tabela da base. A linha de outra variante (sem
+  a relação) fica sem valor na ordem (no fim na crescente, no começo na decrescente) e não casa no
+  filtro. `fornecedor: null` é a chave nula; `isNot`/`none`, o `NOT EXISTS`. Conferido no
+  `@prisma/orm-postgres` 8.0.0-rc.25.
+- Campo de variante direto na coleção da base (`favorecidoNome` em `TituloFinanceiro`) também
+  ordena e filtra pela coluna da tabela.
+- Fakes: as relações do contrato fake saem com a chave (`on`, convenção `<relação>Id` → `id`).
+
 ## 2.0.0-rc.41 (2026-11-26)
 
 - **Ordenar e filtrar por campo de variante através de relação (Prisma 8).** Com a relação do

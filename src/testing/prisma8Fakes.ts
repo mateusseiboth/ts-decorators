@@ -61,7 +61,12 @@ export function fakeContract(models: FakeContractModels) {
       relations: Object.fromEntries(
         Object.entries(meta.relations ?? {}).map(([rel, to]) => [
           rel,
-          { cardinality: "1:N", to: { model: to, namespace: "public" } },
+          {
+            cardinality: "1:N",
+            to: { model: to, namespace: "public" },
+            // A chave no fake segue a convenção `<relação>Id` → `id`.
+            on: { localFields: [`${rel}Id`], targetFields: ["id"] },
+          },
         ]),
       ),
       storage: {

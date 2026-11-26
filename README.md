@@ -1158,6 +1158,25 @@ variantes no contrato e, para o campo da variante guardada na mesma tabela da ba
 com o alias da tabela relacionada. Variante em tabela própria não é suportada (o ORM responde o
 erro dele).
 
+**O inverso: relação de uma variante, na lista da base.** A relação to-one está na variante
+(`TituloAPagar.fornecedor`, chave `fornecedorId`) e a lista é da base (`TituloFinanceiro`). O model
+do projeto declara a relação na classe da BASE da lista, com a classe do outro lado:
+
+```ts
+@InitFields
+@ModelTagged
+class TituloFinanceiroModel {
+  static tag = 50;
+  @Field() favorecidoNome?: string; // campo da variante também pode ficar aqui
+  @Field(FornecedorModel) fornecedor?: FornecedorModel; // relação da variante TituloAPagar
+}
+```
+
+`?orderBy=fornecedor.nome` vira subconsulta correlacionada pela coluna da chave na tabela da base;
+`?fornecedor.nome=contains:x`, um `EXISTS`. A linha de outra variante fica sem valor na ordem (fim
+na crescente) e não casa no filtro. A relação precisa de chave de uma coluna e de a variante morar
+na tabela da base.
+
 #### Filtro conferido pelo contrato: `assertWhereFitsContract`
 
 `assertWhereFitsContract(colecao, where)` lança `InvalidFilterError` (`statusCode` 400) no nulo em
