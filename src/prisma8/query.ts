@@ -9,6 +9,7 @@
 import {
   applyColumnProjection,
   convertBigIntValues,
+  buildPage,
   emptyPage,
   paginar,
   type IResponsePaginate,
@@ -110,14 +111,9 @@ async function executeSemPaginacao<T>(
   options: PagedQueryOptions,
 ): Promise<IResponsePaginate<T>> {
   const rows = await applyQueryOptions(collection, options).all();
-  if (!rows.length) return emptyPage<T>();
+  if (!rows.length) return emptyPage<T>(options.page ?? 1);
   const data = convertBigIntValues(decodeRowsForCollection(collection, rows)) as T[];
-  return {
-    data: {
-      data,
-      paginacao: { totalPage: data.length, page: options.page, total: Math.ceil(data.length / 10) },
-    },
-  } as IResponsePaginate<T>;
+  return buildPage<T>(data, data.length, options.page, undefined);
 }
 
 /**

@@ -13,8 +13,10 @@
  */
 
 import "reflect-metadata";
+import { appendMetadataItem } from "./_metadataList";
 import { makeMethodDecorator } from "./_method";
 import { isDecoratorContext, warnLegacy } from "./_proxy";
+import { getFieldOptions } from "./initFields";
 import { bumpMetadataVersion, createMetadataCache } from "./metadata";
 
 const MASK_FIELDS_KEY = "mask:fields";
@@ -44,8 +46,18 @@ function resolveMaskFields(ctor: any): readonly FieldMeta[] {
       ? (ctor?.[Symbol.metadata]?.[MASK_FIELDS_KEY] as FieldMeta[] | undefined)
       : undefined) ?? [];
 
-  if (!legacy.length && !tc39.length) return NO_FIELDS;
-  return Object.freeze([...tc39, ...legacy]);
+  const marked = [...tc39, ...legacy];
+  const encrypted = encryptedFields(ctor, marked);
+  if (!marked.length && !encrypted.length) return NO_FIELDS;
+  return Object.freeze([...marked, ...encrypted]);
+}
+
+/** Campo `@Field({ encrypted: true })` é sensível mesmo sem `@MaskSensitive`. */
+function encryptedFields(ctor: any, marked: readonly FieldMeta[]): FieldMeta[] {
+  const options = getFieldOptions(ctor?.prototype);
+  return Object.keys(options)
+    .filter((field) => options[field]?.encrypted && !marked.some((meta) => meta.field === field))
+    .map((field) => ({ field, ...DEFAULTS }));
 }
 
 /**
@@ -113,9 +125,10 @@ export function MaskSensitive(options?: MaskOptions) {
       warnLegacy("MaskSensitive");
       const target = args[0];
       const propertyKey = args[1] as string;
-      const list: FieldMeta[] = Reflect.getMetadata(MASK_FIELDS_KEY, target.constructor) ?? [];
-      list.push({ field: propertyKey, ...opts });
-      Reflect.defineMetadata(MASK_FIELDS_KEY, list, target.constructor);
+      appendMetadataItem<FieldMeta>(MASK_FIELDS_KEY, target.constructor, {
+        field: propertyKey,
+        ...opts,
+      });
       bumpMetadataVersion();
       return;
     }

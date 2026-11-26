@@ -205,7 +205,38 @@ describe("executePrismaQuery — com deriveTotal ligado", () => {
 
     expect(delegate.findManyCalls.length).toBe(1);
     expect(delegate.countCalls.length).toBe(0);
-    expect(result).toEqual({ data: [], paginate: { totalPage: 0, page: 1, total: 0 } });
+    expect(result).toEqual({ data: { data: [], paginacao: { totalPage: 0, page: 1, total: 0 } } });
+  });
+});
+
+describe("executePrismaQuery: página sem linhas", () => {
+  test("primeira página vazia sai no MESMO envelope da cheia, sem contar", async () => {
+    const delegate = mockDelegate([], { total: 0 });
+    const result: any = await executePrismaQuery(
+      delegate as any,
+      { where: {}, skip: 0, take: 10, page: 1 } as any,
+    );
+    expect(result).toEqual({ data: { data: [], paginacao: { totalPage: 0, page: 1, total: 0 } } });
+    expect(delegate.countCalls.length).toBe(0);
+  });
+
+  test("página além da última conta e responde o total real e a página pedida", async () => {
+    const delegate = mockDelegate([], { total: 25 });
+    const result: any = await executePrismaQuery(
+      delegate as any,
+      { where: {}, skip: 50, take: 10, page: 6 } as any,
+    );
+    expect(result).toEqual({ data: { data: [], paginacao: { totalPage: 25, page: 6, total: 3 } } });
+    expect(delegate.countCalls.length).toBe(1);
+  });
+
+  test("página além da última reaproveita a contagem do cache", async () => {
+    const delegate = mockDelegate([], { total: 25, model: "AlemDaUltima" });
+    const opts = { where: { x: 1 }, skip: 50, take: 10, page: 6, countTtlMs: 60_000 };
+    await executePrismaQuery(delegate as any, { ...opts } as any);
+    const segunda: any = await executePrismaQuery(delegate as any, { ...opts } as any);
+    expect(segunda.data.paginacao).toEqual({ totalPage: 25, page: 6, total: 3 });
+    expect(delegate.countCalls.length).toBe(1);
   });
 });
 
@@ -306,7 +337,7 @@ describe("executePrismaQuery — cache da contagem", () => {
     expect(r.data.paginacao.totalPage).toBe(7);
   });
 
-  test("ENTIDADE diferente conta de novo — total de um município não vaza para outro", async () => {
+  test("TENANT diferente conta de novo — total de um município não vaza para outro", async () => {
     const ent10 = mockDelegate(ids(2), { total: 500 });
     const ent20 = mockDelegate(ids(2), { total: 33 });
 

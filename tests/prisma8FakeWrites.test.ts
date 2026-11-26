@@ -27,6 +27,21 @@ describe("FakeCollection: terminais de escrita", () => {
     expect(col.writes[0]?.state.where).toEqual([{ op: "eqObject", value: { id: "1" } }]);
   });
 
+  test("rows como função: update e delete devolvem null quando o filtro não casa linha", async () => {
+    // O filtro com a versão não casa; o filtro só pelo id casa (é o que a trava otimista lê).
+    const col = new FakeCollection(models, "Bairro", {
+      rows: (state) => (state.where.length > 1 ? [] : [{ id: "1", name: "a" }]),
+    });
+    expect(await col.where({ id: "1" }).update({ name: "b" })).toEqual({ id: "1", name: "b" });
+    expect(await col.where({ id: "1" }).where({ name: "x" }).update({ name: "b" })).toBeNull();
+    expect(await col.where({ id: "1" }).where({ name: "x" }).delete()).toBeNull();
+  });
+
+  test("sem rows configuradas, update continua devolvendo o payload", async () => {
+    const col = new FakeCollection(models, "Bairro");
+    expect(await col.update({ name: "b" })).toEqual({ name: "b" });
+  });
+
   test("upsert guarda conflictOn e devolve a linha existente quando há", async () => {
     const col = new FakeCollection(models, "Bairro", { rows: [{ id: "1", name: "ja" }] });
     const row = await col.upsert({

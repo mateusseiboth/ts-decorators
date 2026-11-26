@@ -29,6 +29,7 @@
 import type { NextFunction, Request, Response } from "express";
 
 import { logger } from "../functions/logger";
+import { markCommitQueue, rollbackCommitQueue } from "../handlers/afterCommit";
 import type { CompanyIdInjector } from "../handlers/companyId";
 import { runInTransaction, type PrismaClientLike } from "../handlers/prisma";
 import { isPrisma7Tx, isPrisma8Tx, runStatement } from "../prisma8/client";
@@ -46,6 +47,16 @@ let _addCompanyFn: AddCompanyFn | null = null;
 
 export function setTransactionalCompanyFn(fn: AddCompanyFn | null) {
   _addCompanyFn = fn;
+}
+
+/** A função registrada, ou `null`. Quem abre transação fora do `Transactional` também a usa. */
+export function findTransactionalCompanyFn(): AddCompanyFn | null {
+  return _addCompanyFn;
+}
+
+/** Esquece a função registrada (testes). */
+export function clearTransactionalCompanyFn(): void {
+  _addCompanyFn = null;
 }
 
 /**
@@ -190,6 +201,8 @@ export function TransactionalClass<T extends { new (...args: any[]): any }>(
       if (!useSavepoint) return originalMethod.call(this, ...args);
 
       const savepointName = `sp_${methodName}_${++_savepointSeq}`;
+      // Os ganchos afterCommit da escrita revertida pelo savepoint vão embora com ela.
+      const commitMark = markCommitQueue(tx);
       try {
         await runStatement(tx, `SAVEPOINT "${savepointName}"`);
         logger.debug(
@@ -204,6 +217,7 @@ export function TransactionalClass<T extends { new (...args: any[]): any }>(
         );
         return result;
       } catch (err) {
+        rollbackCommitQueue(tx, commitMark);
         try {
           await runStatement(tx, `ROLLBACK TO SAVEPOINT "${savepointName}"`);
           logger.debug(

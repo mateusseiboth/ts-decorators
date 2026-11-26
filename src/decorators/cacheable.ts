@@ -30,7 +30,7 @@
 import { logger } from "../functions/logger";
 import { stableStringify } from "../functions/object";
 import { getHandlerContext } from "../handlers/context";
-import { wrapMetodosDaClasse } from "./_method";
+import { matchAsync, wrapMetodosDaClasse } from "./_method";
 import { isDecoratorContext, warnLegacy } from "./_proxy";
 
 interface CacheEntry {
@@ -79,9 +79,9 @@ export function clearAllCache() {
 /** Retorna stats do cache para monitoramento */
 export function getCacheStats() {
   const stats: Record<string, number> = {};
-  for (const [className, entidadeMap] of _cache) {
+  for (const [className, tenantMap] of _cache) {
     let total = 0;
-    for (const [, entries] of entidadeMap) {
+    for (const [, entries] of tenantMap) {
       total += entries.size;
     }
     stats[className] = total;
@@ -99,17 +99,17 @@ function getClassCache(className: string): Map<string, Map<string, CacheEntry>> 
   return classCache;
 }
 
-function getEntidadeCache(className: string, entidade: string): Map<string, CacheEntry> {
+function getTenantCache(className: string, entidade: string): Map<string, CacheEntry> {
   const classCache = getClassCache(className);
-  let entidadeCache = classCache.get(entidade);
-  if (!entidadeCache) {
-    entidadeCache = new Map();
-    classCache.set(entidade, entidadeCache);
+  let tenantCache = classCache.get(entidade);
+  if (!tenantCache) {
+    tenantCache = new Map();
+    classCache.set(entidade, tenantCache);
   }
-  return entidadeCache;
+  return tenantCache;
 }
 
-function invalidateForEntidade(className: string, entidade: string) {
+function invalidateForTenant(className: string, entidade: string) {
   const classCache = _cache.get(className);
   if (classCache) {
     classCache.delete(entidade);
@@ -120,7 +120,7 @@ function invalidateForEntidade(className: string, entidade: string) {
  * Resolve a entidade (RLS) para chavear o cache. A entidade nunca é passada
  * explicitamente: vem do `res.locals` ou do contexto (AsyncLocalStorage).
  */
-function resolveEntidade(res?: any): string {
+function resolveTenant(res?: any): string {
   const fromLocals = res?.locals?.entity ?? res?.locals?.entidade;
   if (fromLocals != null) return String(fromLocals);
   const ctx = getHandlerContext();
@@ -174,26 +174,26 @@ function buildCacheKey(req: any, res?: any): string {
  * já é feita na leitura (entrada vencida é tratada como ausente).
  */
 function storeEntry(
-  entidadeCache: Map<string, CacheEntry>,
+  tenantCache: Map<string, CacheEntry>,
   cacheKey: string,
   entry: CacheEntry,
   maxEntries: number,
 ) {
-  entidadeCache.set(cacheKey, entry);
-  if (entidadeCache.size <= maxEntries) return;
+  tenantCache.set(cacheKey, entry);
+  if (tenantCache.size <= maxEntries) return;
 
   const now = Date.now();
-  for (const [key, cached] of entidadeCache) {
-    if (cached.expiresAt < now) entidadeCache.delete(key);
+  for (const [key, cached] of tenantCache) {
+    if (cached.expiresAt < now) tenantCache.delete(key);
   }
 
   // Ainda cheio depois de expurgar os vencidos: descarta os mais antigos
   // (ordem de inserção do Map).
-  let excess = entidadeCache.size - maxEntries;
+  let excess = tenantCache.size - maxEntries;
   if (excess <= 0) return;
-  for (const key of entidadeCache.keys()) {
+  for (const key of tenantCache.keys()) {
     if (excess-- <= 0) break;
-    entidadeCache.delete(key);
+    tenantCache.delete(key);
   }
 }
 
@@ -225,12 +225,12 @@ export function Cacheable(options: CacheOptions = {}) {
     // Funções que cacheiam: retornam do cache se disponível.
     const buildCacheado = (methodName: string, originalMethod: Function): Function =>
       async function (this: any, req: any, res: any, ...rest: any[]) {
-        const entidade = resolveEntidade(res);
+        const entidade = resolveTenant(res);
         const cacheKey = buildCacheKey(req, res);
-        const entidadeCache = getEntidadeCache(className, entidade);
+        const tenantCache = getTenantCache(className, entidade);
 
         // Verifica cache
-        const cached = entidadeCache.get(cacheKey);
+        const cached = tenantCache.get(cacheKey);
         if (cached && cached.expiresAt > Date.now()) {
           logger.debug(
             () =>
@@ -246,7 +246,7 @@ export function Cacheable(options: CacheOptions = {}) {
           // Grava no cache apenas se status 2xx
           if (res.statusCode >= 200 && res.statusCode < 300) {
             storeEntry(
-              entidadeCache,
+              tenantCache,
               cacheKey,
               { data: body, expiresAt: Date.now() + opts.ttl },
               opts.maxEntries,
@@ -270,8 +270,8 @@ export function Cacheable(options: CacheOptions = {}) {
         } finally {
           // Só invalida quando a função terminou com sucesso; em erro, mantém o cache.
           if (succeeded) {
-            const entidade = resolveEntidade(res);
-            invalidateForEntidade(className, entidade);
+            const entidade = resolveTenant(res);
+            invalidateForTenant(className, entidade);
           }
         }
       };
@@ -300,11 +300,11 @@ export function CacheMethod(options?: { ttl?: number }) {
       const methodKey = String(args[1].name);
       return async function (this: any, req: any, res: any, ...rest: any[]) {
         const className = this.constructor.name;
-        const entidade = resolveEntidade(res);
+        const entidade = resolveTenant(res);
         const cacheKey = `${methodKey}:${buildCacheKey(req, res)}`;
-        const entidadeCache = getEntidadeCache(className, entidade);
+        const tenantCache = getTenantCache(className, entidade);
 
-        const cached = entidadeCache.get(cacheKey);
+        const cached = tenantCache.get(cacheKey);
         if (cached && cached.expiresAt > Date.now()) {
           logger.debug(
             () =>
@@ -318,7 +318,7 @@ export function CacheMethod(options?: { ttl?: number }) {
         res.json = function (body: any) {
           if (res.statusCode >= 200 && res.statusCode < 300) {
             storeEntry(
-              entidadeCache,
+              tenantCache,
               cacheKey,
               { data: body, expiresAt: Date.now() + ttl },
               DEFAULT_OPTIONS.maxEntries,
@@ -342,11 +342,11 @@ export function CacheMethod(options?: { ttl?: number }) {
 
     descriptor.value = async function (this: any, req: any, res: any, ...rest: any[]) {
       const className = this.constructor.name;
-      const entidade = resolveEntidade(res);
+      const entidade = resolveTenant(res);
       const cacheKey = `${methodKey}:${buildCacheKey(req, res)}`;
-      const entidadeCache = getEntidadeCache(className, entidade);
+      const tenantCache = getTenantCache(className, entidade);
 
-      const cached = entidadeCache.get(cacheKey);
+      const cached = tenantCache.get(cacheKey);
       if (cached && cached.expiresAt > Date.now()) {
         logger.debug(
           () =>
@@ -360,7 +360,7 @@ export function CacheMethod(options?: { ttl?: number }) {
       res.json = function (body: any) {
         if (res.statusCode >= 200 && res.statusCode < 300) {
           storeEntry(
-            entidadeCache,
+            tenantCache,
             cacheKey,
             { data: body, expiresAt: Date.now() + ttl },
             DEFAULT_OPTIONS.maxEntries,
@@ -467,7 +467,7 @@ function runCached(
   opts: CachedOptions,
   args: any[],
 ) {
-  const entidade = resolveEntidade();
+  const entidade = resolveTenant();
   const argKey = opts.key ? opts.key(...args) : stableStringify(args);
   const cacheKey = reportCacheKey(
     className,
@@ -514,10 +514,10 @@ export function Cached(options?: CachedOptions) {
     if (args.length === 2 && isDecoratorContext(args[1]) && args[1].kind === "method") {
       const originalMethod = args[0] as Function;
       const methodKey = String(args[1].name);
-      return function (this: any, ...callArgs: any[]) {
+      return matchAsync(originalMethod, function (this: any, ...callArgs: any[]) {
         const className = this?.constructor?.name ?? "Fn";
         return runCached.call(this, originalMethod, className, methodKey, opts, callArgs);
-      };
+      });
     }
 
     // Legacy: (target, propertyKey, descriptor)
@@ -525,10 +525,10 @@ export function Cached(options?: CachedOptions) {
     const propertyKey = args[1] as string;
     const descriptor = args[2] as PropertyDescriptor;
     const originalMethod = descriptor.value;
-    descriptor.value = function (this: any, ...callArgs: any[]) {
+    descriptor.value = matchAsync(originalMethod, function (this: any, ...callArgs: any[]) {
       const className = this?.constructor?.name ?? "Fn";
       return runCached.call(this, originalMethod, className, propertyKey, opts, callArgs);
-    };
+    });
     return descriptor;
   };
 }

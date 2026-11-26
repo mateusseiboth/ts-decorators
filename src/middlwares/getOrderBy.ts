@@ -29,10 +29,14 @@ export function getOrderBy<T>(
 
   // Os tipos ACHATADOS do model (`contribuinte.name` incluído), os mesmos do `getWhere`: a tela
   // ordena pela coluna em que pesquisa. Consulta direta no mapa, sem varrer o model.
-  const { types, listPaths } = collectFieldMeta(modelBase.prototype);
+  // Campo cifrado não ordena: o mesmo valor gera textos diferentes no banco.
+  const { types, listPaths, options } = collectFieldMeta(modelBase.prototype);
   const key = req.query.orderBy;
   const orderBy =
-    typeof key === "string" && Object.hasOwn(types, key) && !isCaminhoDeLista(key, listPaths)
+    typeof key === "string" &&
+    Object.hasOwn(types, key) &&
+    !isCaminhoDeLista(key, listPaths) &&
+    !options[key]?.encrypted
       ? [buildOrdem(key, req.query.orderMethod)]
       : [];
 

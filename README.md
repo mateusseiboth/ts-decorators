@@ -273,6 +273,11 @@ Headers: paginate: "true", page: "2", offset: "20"
   // skip = (page - 1) * offset = (2 - 1) * 20 = 20
 ```
 
+`page` e `offset` aceitam só inteiros a partir de 1 (o que o `parseInt` já lia continua valendo:
+`"2abc"` é 2). Zero, negativo ou texto que não é número responde **400** com
+`{ message: "Paginação inválida.", errors: [{ path: "page" | "offset", message }] }`, em vez do 500
+do Prisma ou de uma página com total negativo.
+
 > **ℹ️** If the `paginate` header is not `"true"`, `res.locals.paginate` stays `undefined` and `makePrismaOptions` omits `skip`/`take` from the Prisma query (returns all records).
 
 ---
@@ -458,6 +463,50 @@ getFieldTypeByKey(new DistrictModel(), "internalNotes"); // → undefined
 ```
 
 > **ℹ️ Inheritance:** `getFieldTypes` walks the prototype chain, so a subclass automatically inherits the `@Field()` registrations of its parent class.
+
+---
+
+#### Campo cifrado e normalização: `@Field({ encrypted, normalize })`
+
+No lugar do tipo, o `@Field` aceita opções. As duas valem no caminho único de gravação e leitura
+(`encodeRowForCollection`, `decodeRowsForCollection`/`readRows`, `executeOrmQuery`,
+`executePrismaQuery`, `updateById`), no Prisma 7 (delegate) e no 8 (coleção). Com as duas no mesmo
+campo, normaliza antes de cifrar.
+
+```ts
+import {configureEncryption, Field, InitFields} from "@mateusseiboth/ts-decorators";
+
+// boot: a chave atual grava; as outras só leem
+configureEncryption({
+  keys: {k1: process.env.FIELD_KEY_K1, k2: process.env.FIELD_KEY_K2},
+  current: "k2",
+});
+
+@InitFields
+class CertificadoModel {
+  static prismaModel = "Certificado"; // opcional: o default é o nome da classe sem "Model"
+  @Field({type: "string", encrypted: true}) senha!: string;
+  @Field({type: "string", normalize: "digits"}) cnpj!: string; // "digits" | "trim" | "upper" | função | lista
+}
+```
+
+- **Cifra:** AES-256-GCM (`node:crypto`, síncrono), IV aleatório por valor, texto
+  `enc:v1:<impressão digital da chave>:<iv>:<dado>` (base64url). A impressão digital é o SHA-256
+  da chave, não o rótulo: chave errada no ambiente dá "chave não configurada" e o dado fica intacto.
+- **Classe que não casa com o model:** `EncryptionError` `UNMAPPED_MODEL` no primeiro uso
+  (Prisma 8, pelo contrato; Prisma 7, pelo client registrado). No Prisma 7, chame também
+  `checkEncryptedModels(Object.values(Prisma.ModelName))` no boot.
+- **Sem `configureEncryption`:** erro no primeiro uso. Chave fora de 32 bytes: erro no boot.
+  Gere com `openssl rand -base64 32`.
+- **Legado:** valor em texto puro é lido como está e a próxima gravação cifra. `reencryptColumn`
+  recifra uma coluna em lote e relata quantos valores ficaram em cada chave
+  (`countByEncryptionKey`, `listEncryptionKeys`, `keyFingerprint`).
+- **Perder a chave é perder o dado.** O backup do banco não contém a chave: guarde-a num cofre.
+- **Consequências:** campo cifrado não serve para filtro (o `getWhere` responde 400), ordenação
+  (o `getOrderBy` ignora) nem índice; a coluna precisa ser `TEXT`; o valor é mascarado no
+  `applyMask` e no `AuditLogger` mesmo sem `@MaskSensitive`.
+- **`normalize`:** vale também no filtro do `getWhere` (CPF com máscara acha o CPF gravado sem
+  ela). Nulo e vazio passam intactos. `normalizeValue` é exportado.
 
 ---
 
@@ -1003,6 +1052,87 @@ test("cria o bairro", async () => {
 
 `setFakeWriteHook(fn)` aplica uma função a cada linha gravada no fake, para o teste reproduzir o
 que o middleware do projeto acrescenta na escrita real (auditoria, tenant, datas).
+
+---
+
+#### Trechos de SQL cru: `sql`, `joinSql`, `EMPTY_SQL`, `toTemplate`
+
+O `Prisma.sql`, o `Prisma.join` e o `Prisma.empty` do Prisma 7, para o `db.raw.sql` do 8. O
+`db.raw.sql` só interpola VALOR; para montar um comando em pedaços (filtro opcional, lista de
+condições) o trecho interpolado vira texto do comando e os valores dele, parâmetros na mesma ordem.
+
+```ts
+import {EMPTY_SQL, joinSql, sql, toTemplate} from "@mateusseiboth/ts-decorators";
+
+const nomes = joinSql([sql`nome = ${"Natal"}`, sql`nome = ${"Páscoa"}`], " OR ");
+const filtro = sql`tenant_id = ${10} AND (${nomes})${somenteAtivos ? sql` AND ativo` : EMPTY_SQL}`;
+const plano = db.raw.sql(...toTemplate(sql`SELECT id FROM feriados WHERE ${filtro}`))
+  .returnsRow({id: "pg/text@1"})
+  .build();
+```
+
+O texto do trecho nunca vem da requisição: valor de fora entra sempre como `${valor}`. Data
+interpolada vai como `timestamptz` quando o `configurePrisma8` recebe o `param` de
+`@prisma/orm-family-sql/relational-core`; sem ele, data no SQL cru lança.
+
+#### Filtro conferido pelo contrato: `assertWhereFitsContract`
+
+`assertWhereFitsContract(colecao, where)` lança `InvalidFilterError` (`statusCode` 400) no nulo em
+coluna obrigatória (`?nome=isNull:x`), que o Prisma 7 recusava antes de ir ao banco e o Prisma 8
+executaria devolvendo a página vazia. O contrato vem da própria coleção; chave que não é coluna do
+model fica para o ORM. Nos fakes, `required` no `FakeModelMeta` declara as colunas NOT NULL.
+
+```ts
+assertWhereFitsContract(tx.orm.public.Bairro, res.locals.where);
+return executeOrmQuery(tx.orm.public.Bairro, makePrismaOptions(res));
+```
+
+#### Leituras preparadas e compartilhadas: `prepareRead`, `shareReads`, `readShared`
+
+- `prepareRead(() => db.prepare(...))`: a leitura de forma fixa e muito chamada é compilada uma vez
+  por processo e executada na transação de cada chamada (a RLS vale igual). Preparação que falha
+  não fica guardada.
+- `shareReads(tx, fn)` / `readShared(tx, chave, ler)`: dentro de `shareReads`, a leitura de mesma
+  chave vai ao banco uma vez. Fora dele nada é guardado.
+
+#### Statements crus: `runStatement`, `rawStatementPlan`, `rawRowsPlan`
+
+`runStatement(tx, sql)` executa um statement SEM parâmetros na transação, do 7 ou do 8
+(`SAVEPOINT`). Para o 8, `rawRowsPlan(sql, { coluna: "pg/text@1" })` monta um plano que devolve
+linhas (`tx.query(plano)`); cada coluna declara o codec que a decodifica.
+
+### Trava otimista: `updateById`
+
+Dois operadores editam o mesmo registro: sem trava, o último a salvar apaga a mudança do outro em
+silêncio. Com a trava ligada no DAO, o update é condicional pela versão que o cliente carregou (o
+`updated_at`, sem migration) e quem salva com a versão antiga recebe 409.
+
+```ts
+import {DAOFor, readIfMatch, updateById} from "@mateusseiboth/ts-decorators";
+
+@DAOFor(ImovelModel.tag, {optimisticLock: true}) // versionColumn: "updated_at" por padrão
+class ImovelDAO extends BaseDAO {
+  async update(data, id) {
+    // Prisma 7: o delegate (tx.imovel). Prisma 8: a coleção (tx.orm.public.Imovel).
+    const row = await updateById(this.delegate, id, data, {dao: this});
+    if (!row) throw notFound("Registro não encontrado para atualização.");
+    return row;
+  }
+}
+```
+
+- A versão vem no campo `updated_at` do corpo ou no header `If-Match` (`readIfMatch(req)`, passado
+  em `version`; vence o corpo).
+- Não casou e o registro existe: `OptimisticLockError` (`statusCode` 409,
+  `code: "REGISTRO_ALTERADO"`). Não casou e o registro não existe: `null`.
+- Sem versão no pedido: atualiza sem conferir.
+
+### `afterCommit(tx, fn)`
+
+Efeito colateral (e-mail, job, evento) que só pode sair depois do commit: `afterCommit(tx, fn)`
+guarda `fn` até o commit da transação aberta por `runInTransaction`, `withTransaction` ou
+`Transactional`, e a descarta no rollback. O `ROLLBACK TO SAVEPOINT` do `@TransactionalClass`
+descarta só os ganchos da escrita desfeita.
 
 ---
 

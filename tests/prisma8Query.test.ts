@@ -29,7 +29,7 @@ const models: FakeContractModels = {
  * isso: `active` é coluna de verdade, e mesmo assim não dá para pedir `.asc()` nela.
  */
 const modelsComBooleano: FakeContractModels = {
-  Produto: { fields: ["id", "nome"], semOrdenacao: ["active"] },
+  Produto: { fields: ["id", "nome"], withoutOrdenacao: ["active"] },
 };
 
 beforeEach(() => {
@@ -287,7 +287,7 @@ describe("executeOrmQuery — mesma resposta paginada do executePrismaQuery", ()
   test("sem paginação e sem linhas devolve o shape vazio", async () => {
     const col = new FakeCollection(models, "Bairro", { rows: [] });
     const result: any = await executeOrmQuery(col, { where: { enabled: true } });
-    expect(result).toEqual({ data: [], paginate: { totalPage: 0, page: 1, total: 0 } });
+    expect(result).toEqual({ data: { data: [], paginacao: { totalPage: 0, page: 1, total: 0 } } });
     expect(col.calls.map((c) => c.terminal)).toEqual(["all"]);
   });
 
@@ -299,7 +299,7 @@ describe("executeOrmQuery — mesma resposta paginada do executePrismaQuery", ()
       skip: 0,
       page: 1,
     });
-    expect(result).toEqual({ data: [], paginate: { totalPage: 0, page: 1, total: 0 } });
+    expect(result).toEqual({ data: { data: [], paginacao: { totalPage: 0, page: 1, total: 0 } } });
     expect(col.calls.map((c) => c.terminal)).toEqual(["all"]);
   });
 

@@ -3,6 +3,8 @@
  */
 import type { NextFunction, Request } from "express";
 
+import { setLogWriter } from "../src/functions/logger";
+
 /** Cria um mock de Request do Express */
 export function mockReq(overrides: Partial<Request> & Record<string, any> = {}): any {
   return {
@@ -101,32 +103,62 @@ export function fakeFieldContext(
   } as any;
 }
 
-/** Captura console.warn calls */
-export function captureWarnings(): { warnings: string[]; restore: () => void } {
-  const warnings: string[] = [];
-  const origWarn = console.warn;
-  console.warn = (...args: any[]) => {
-    warnings.push(args.join(" "));
+type NivelCapturado = "debug" | "info" | "warn" | "error";
+type Captura = { niveis: readonly NivelCapturado[]; linhas: string[] };
+
+/**
+ * O logger escreve direto no stdout (não passa pelo `console`). As capturas abertas dividem um
+ * escritor só, que entrega cada linha às capturas do nível dela; a última a fechar devolve o stdout.
+ */
+const _capturas = new Set<Captura>();
+
+const tapLogger = (captura: Captura): (() => void) => {
+  _capturas.add(captura);
+  setLogWriter((linha, nivel) => {
+    for (const aberta of _capturas) if (aberta.niveis.includes(nivel)) aberta.linhas.push(linha);
+  });
+  return () => {
+    _capturas.delete(captura);
+    if (_capturas.size === 0) setLogWriter();
   };
+};
+
+type MetodoDoConsole = "log" | "warn" | "error";
+
+/** Captura o logger nesses níveis e o `console[metodo]` direto. */
+function captureOutput(
+  metodo: MetodoDoConsole,
+  niveis: readonly NivelCapturado[],
+): { linhas: string[]; restore: () => void } {
+  const linhas: string[] = [];
+  const original = console[metodo];
+  console[metodo] = (...args: any[]) => {
+    linhas.push(args.join(" "));
+  };
+  const untap = tapLogger({ niveis, linhas });
   return {
-    warnings,
+    linhas,
     restore: () => {
-      console.warn = origWarn;
+      console[metodo] = original;
+      untap();
     },
   };
 }
 
-/** Captura console.log calls */
+/** Captura `logger.warn` e `console.warn`. */
+export function captureWarnings(): { warnings: string[]; restore: () => void } {
+  const { linhas, restore } = captureOutput("warn", ["warn"]);
+  return { warnings: linhas, restore };
+}
+
+/** Captura `logger.info`, `logger.debug` e `console.log`. */
 export function captureLogs(): { logs: string[]; restore: () => void } {
-  const logs: string[] = [];
-  const origLog = console.log;
-  console.log = (...args: any[]) => {
-    logs.push(args.join(" "));
-  };
-  return {
-    logs,
-    restore: () => {
-      console.log = origLog;
-    },
-  };
+  const { linhas, restore } = captureOutput("log", ["info", "debug"]);
+  return { logs: linhas, restore };
+}
+
+/** Captura `logger.error` e `console.error`. */
+export function captureErrors(): { errors: string[]; restore: () => void } {
+  const { linhas, restore } = captureOutput("error", ["error"]);
+  return { errors: linhas, restore };
 }

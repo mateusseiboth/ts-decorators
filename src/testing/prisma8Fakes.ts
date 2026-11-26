@@ -6,6 +6,8 @@
  * comparem a tradução com `toEqual` sem depender de SQL.
  */
 
+import { PARTIAL_CONTRACT } from "../fields/rowFields";
+
 export interface FakeModelMeta {
   fields: string[];
   relations?: Record<string, string>; // nome da relação → model alvo
@@ -14,13 +16,30 @@ export interface FakeModelMeta {
    * `Boolean`, porque o codec `bool` não declara o trait `order`. Elas contam como campo do
    * model (entram em `fields` sozinhas), mas o proxy não as deixa ordenar diretamente.
    */
+  withoutOrdenacao?: string[];
+  /** @deprecated Use `withoutOrdenacao`. Continua aceito até a 3.0. */
   semOrdenacao?: string[];
+  /**
+   * Colunas NOT NULL. Com a lista, toda coluna do model sai no contrato com `nullable` (`false`
+   * nestas, `true` nas outras), como no contrato emitido. Sem ela, o contrato não diz.
+   */
+  required?: string[];
 }
 
 export type FakeContractModels = Record<string, FakeModelMeta>;
 
+/** As colunas que o ORM se recusa a ordenar (`withoutOrdenacao`, ou o legado `semOrdenacao`). */
+const unorderableFields = (meta: FakeModelMeta): string[] =>
+  meta.withoutOrdenacao ?? meta.semOrdenacao ?? [];
+
 /** Todas as colunas do model: as ordenáveis e as que o ORM se recusa a ordenar. */
-const allFields = (meta: FakeModelMeta): string[] => [...meta.fields, ...(meta.semOrdenacao ?? [])];
+const allFields = (meta: FakeModelMeta): string[] => [...meta.fields, ...unorderableFields(meta)];
+
+/** A coluna como o contrato a declara; `nullable` só quando o model diz quais são obrigatórias. */
+const buildField = (meta: FakeModelMeta, field: string) => ({
+  type: { kind: "scalar" },
+  ...(meta.required ? { nullable: !meta.required.includes(field) } : {}),
+});
 
 export function fakeContract(models: FakeContractModels) {
   const out: Record<
@@ -29,7 +48,7 @@ export function fakeContract(models: FakeContractModels) {
   > = {};
   for (const [name, meta] of Object.entries(models)) {
     out[name] = {
-      fields: Object.fromEntries(allFields(meta).map((f) => [f, { type: { kind: "scalar" } }])),
+      fields: Object.fromEntries(allFields(meta).map((f) => [f, buildField(meta, f)])),
       relations: Object.fromEntries(
         Object.entries(meta.relations ?? {}).map(([rel, to]) => [
           rel,
@@ -38,7 +57,15 @@ export function fakeContract(models: FakeContractModels) {
       ),
     };
   }
-  return { domain: { namespaces: { public: { models: out } } } };
+  // O contrato do fake só declara os models do teste: a conferência das classes cifradas (que
+  // exige TODOS os models do schema) não roda nele.
+  return Object.defineProperty(
+    { domain: { namespaces: { public: { models: out } } } },
+    PARTIAL_CONTRACT,
+    {
+      value: true,
+    },
+  );
 }
 
 export const fakeCombinators = {
@@ -105,7 +132,7 @@ export function fakeProxy(models: FakeContractModels, model: string): any {
     }
     // `buildAst` existe em TODA coluna — é por ele que dá para ordenar a que não tem `asc`.
     ops.buildAst = () => field;
-    if (!meta.semOrdenacao?.includes(field)) {
+    if (!unorderableFields(meta).includes(field)) {
       ops.asc = () => FakeOrderByItem.asc(field);
       ops.desc = () => FakeOrderByItem.desc(field);
     }
@@ -325,10 +352,13 @@ export class FakeCollection {
     return rows ?? [];
   }
 
-  /** A linha que um terminal de escrita devolve: a primeira de `rows` mesclada com o payload. */
+  /**
+   * A linha que um terminal de escrita devolve: a primeira de `rows` mesclada com o payload, ou
+   * `null` quando `rows` (lista ou função) não devolve linha para o filtro. Sem `rows`, o payload.
+   */
   private writtenRow(data: Record<string, unknown>): Record<string, unknown> | null {
     const [primeira] = this.rowsNow();
-    if (Array.isArray(this.results.rows) && this.results.rows.length === 0) return null;
+    if (this.results.rows !== undefined && primeira === undefined) return null;
     return { ...((primeira as Record<string, unknown> | undefined) ?? {}), ...data };
   }
 

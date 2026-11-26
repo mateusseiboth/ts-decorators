@@ -1,17 +1,21 @@
 import { CacheProvider } from "../decorators/cacheable";
+import { prismaModelNameOf } from "../fields/rowFields";
 import {
   getCompanyIdInjector,
   type CompanyId,
   type CompanyIdInjector,
 } from "../handlers/companyId";
 import { getHandlerContext } from "../handlers/context";
-import { isTemporal, temporalToIso } from "../prisma8/temporal";
+import { decodeRowsForCollection, isTemporal, temporalToIso } from "../prisma8/temporal";
 import { stableStringify } from "./object";
 
 export interface IResponsePaginate<T> {
   data: {
     data: T[];
+    /** Os nomes são o contrato antigo que as telas leem: `totalPage` é o total de REGISTROS e
+     * `total` é a quantidade de PÁGINAS. */
     paginacao: {
+      totalPage?: number;
       total?: number;
       page?: number;
     };
@@ -136,18 +140,10 @@ const COUNT_CACHE_PREFIX = "count";
  * Nome do model por trás do delegate do Prisma (`tx.contribuinte` → `"Contribuinte"`).
  * O Prisma expõe isso em qualquer campo de `delegate.fields`.
  */
-function modelNameOf(delegate: any): string {
-  const fields = delegate?.fields;
-  if (!fields) return "?";
-  for (const key of Object.keys(fields)) {
-    const modelName = fields[key]?.modelName;
-    if (typeof modelName === "string") return modelName;
-  }
-  return "?";
-}
+const modelNameOf = (delegate: unknown): string => prismaModelNameOf(delegate) ?? "?";
 
 /**
- * Chave da contagem. A ENTIDADE entra sempre: a RLS filtra por ela no banco sem
+ * Chave da contagem. A TENANT entra sempre: a RLS filtra por ela no banco sem
  * aparecer no `where`, então sem isso o total de um município seria servido a outro.
  */
 function countCacheKey(model: string, where: unknown): string {
@@ -215,11 +211,41 @@ export interface PaginateSources {
   cacheModel: string;
 }
 
-export function emptyPage<T>(): IResponsePaginate<T> {
+/** O envelope de toda listagem: `{ data: { data, paginacao } }`, com linhas ou sem. */
+export function buildPage<T>(
+  rows: T[],
+  count: number,
+  page: number | undefined,
+  take: number | undefined,
+): IResponsePaginate<T> {
   return {
-    data: [] as any,
-    paginate: { totalPage: 0, page: 1, total: 0 },
-  } as any;
+    data: {
+      data: rows,
+      paginacao: { totalPage: count, page, total: Math.ceil(count / (take || 10)) },
+    },
+  };
+}
+
+/** Listagem sem nenhum registro, no MESMO envelope da cheia (quem lê `data.data` recebe `[]`). */
+export function emptyPage<T>(page: number = 1): IResponsePaginate<T> {
+  return buildPage<T>([], 0, page, undefined);
+}
+
+/**
+ * A página veio sem linhas. Na primeira, o total é zero com certeza e não há o que contar. Depois
+ * dela (página além da última, link antigo, último item excluído), a coleção pode ter registros:
+ * a contagem diz quantos, para a tela mostrar o paginador certo e voltar para uma página que existe.
+ */
+async function buildEmptyPage<T>(
+  sources: PaginateSources,
+  options: PaginateOptions,
+): Promise<IResponsePaginate<T>> {
+  if (!options.skip) return emptyPage<T>(options.page ?? 1);
+  const cacheKey = options.countTtlMs ? countCacheKey(sources.cacheModel, options.where) : "";
+  const cached = cacheKey ? CacheProvider.get<number>(cacheKey) : undefined;
+  const count = cached ?? (await sources.fetchCount());
+  if (cacheKey) CacheProvider.add(cacheKey, count, options.countTtlMs);
+  return buildPage<T>([], count, options.page, options.take);
 }
 
 /**
@@ -238,27 +264,18 @@ export async function paginar<T>(
 
   // 1ª ida ao banco: só as PKs. Percorre o índice, sem carregar coluna nenhuma.
   const ids = await sources.fetchIds();
-  if (!ids.length) return emptyPage<T>();
+  if (!ids.length) return buildEmptyPage<T>(sources, options);
 
-  const buscarLinhas = () => sources.fetchRows(ids.map((i) => i.id));
+  const readLinhas = () => sources.fetchRows(ids.map((i) => i.id));
 
   // Caminho HISTÓRICO, e o padrão: as linhas e DEPOIS a contagem, em sequência,
   // sempre. Só quem pede a otimização recebe o comportamento novo.
   const [data, count] =
     deriveTotal || countTtlMs != null
-      ? await runOptimized(sources, options, ids, buscarLinhas, deriveTotal, countTtlMs)
-      : [await buscarLinhas(), await sources.fetchCount()];
+      ? await runOptimized(sources, options, ids, readLinhas, deriveTotal, countTtlMs)
+      : [await readLinhas(), await sources.fetchCount()];
 
-  return {
-    data: {
-      data: convertBigIntValues(data) as T[],
-      paginacao: {
-        totalPage: count,
-        page,
-        total: Math.ceil(count / (take || 10)),
-      },
-    },
-  } as IResponsePaginate<T>;
+  return buildPage<T>(convertBigIntValues(data) as T[], count, page, take);
 }
 
 export async function executePrismaQuery<T>(
@@ -302,14 +319,18 @@ export async function executePrismaQuery<T>(
           skip: options.skip,
           take: options.take,
         }),
-      fetchRows: (ids) =>
-        objectPrismaQuery.findMany({
-          where: { id: { in: ids } },
-          orderBy: options.orderBy,
-          include: options.include,
-          distinct: options.distinct,
-          select: options.select,
-        }),
+      // A linha vira o dado da API pelo caminho único de leitura (campo cifrado decifrado).
+      fetchRows: async (ids) =>
+        decodeRowsForCollection(
+          objectPrismaQuery,
+          await objectPrismaQuery.findMany({
+            where: { id: { in: ids } },
+            orderBy: options.orderBy,
+            include: options.include,
+            distinct: options.distinct,
+            select: options.select,
+          }),
+        ),
       fetchCount: () => objectPrismaQuery.count({ where: options.where }),
       cacheModel: modelNameOf(objectPrismaQuery),
     },
@@ -334,7 +355,7 @@ async function runOptimized(
   sources: PaginateSources,
   options: PaginateOptions,
   ids: unknown[],
-  buscarLinhas: () => PromiseLike<unknown>,
+  readLinhas: () => PromiseLike<unknown>,
   deriveTotal: boolean,
   countTtlMs: number | undefined,
 ): Promise<[unknown, number]> {
@@ -343,7 +364,7 @@ async function runOptimized(
     (deriveTotal ? deriveTotalFromPage(ids.length, options.skip, options.take) : undefined) ??
     (cacheKey ? CacheProvider.get<number>(cacheKey) : undefined);
 
-  const [data, count] = await Promise.all([buscarLinhas(), known ?? sources.fetchCount()]);
+  const [data, count] = await Promise.all([readLinhas(), known ?? sources.fetchCount()]);
 
   // O total vale para as PRÓXIMAS páginas da mesma listagem — o filtro não mudou.
   if (cacheKey) CacheProvider.add(cacheKey, count, countTtlMs);

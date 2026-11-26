@@ -74,6 +74,8 @@ describe("getModel / ModelTagged / DAOFor", () => {
 
   describe("getAllModels / getAllDAOs", () => {
     test("retornam arrays não-vazios", () => {
+      // Registra o próprio DAO: não depende de outro teste do arquivo ter rodado antes.
+      DAOFor(7770)(class GetAllDAO {}, fakeClassContext("GetAllDAO"));
       expect(getAllModels().length).toBeGreaterThan(0);
       expect(getAllDAOs().length).toBeGreaterThan(0);
     });

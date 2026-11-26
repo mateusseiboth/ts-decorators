@@ -30,6 +30,38 @@ describe("Middlewares", () => {
       expect(res.locals.paginate).toEqual({ skip: 0, take: 10, page: 1 });
     });
 
+    const invalidos: Array<[Record<string, string>, string[]]> = [
+      [{ page: "0" }, ["page"]],
+      [{ page: "-1" }, ["page"]],
+      [{ page: "abc" }, ["page"]],
+      [{ offset: "0" }, ["offset"]],
+      [{ offset: "-3" }, ["offset"]],
+      [{ offset: "abc" }, ["offset"]],
+      [{ page: "0", offset: "0" }, ["page", "offset"]],
+    ];
+    for (const [cabecalhos, caminhos] of invalidos) {
+      test(`responde 400 com ${JSON.stringify(cabecalhos)}`, () => {
+        const req = mockReq({ headers: { paginate: "true", ...cabecalhos } });
+        const res = mockRes();
+        const next = mockNext();
+        getPaginate(req, res, next);
+        expect(next.called).toBe(false);
+        expect(res.statusCode).toBe(400);
+        expect(res._body.message).toBe("Paginação inválida.");
+        expect(res._body.errors.map((e: { path: string }) => e.path)).toEqual(caminhos);
+        expect(res.locals.paginate).toBeUndefined();
+      });
+    }
+
+    test("o que o parseInt já aceitava continua valendo (ex.: '2abc' é 2)", () => {
+      const req = mockReq({ headers: { paginate: "true", page: "2abc", offset: "20" } });
+      const res = mockRes();
+      const next = mockNext();
+      getPaginate(req, res, next);
+      expect(next.called).toBe(true);
+      expect(res.locals.paginate).toEqual({ skip: 20, take: 20, page: 2 });
+    });
+
     test("não seta paginate quando header ausente", () => {
       const res = mockRes();
       const next = mockNext();

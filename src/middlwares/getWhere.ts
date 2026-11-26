@@ -3,8 +3,9 @@ import type { NextFunction, Request, Response } from "express";
 import { OPTIONS_FILTER } from "../constants/default";
 import { Controller } from "../Controller";
 import { getModel } from "../decorators/getModel";
-import { getFieldTypes } from "../decorators/initFields";
+import { getFieldTypes, type FieldOptions } from "../decorators/initFields";
 import { ClientError } from "../errors/commons";
+import { normalizeValue, type FieldNormalize } from "../fields/normalize";
 import { collectFieldMeta } from "../functions/collectFieldsTypes";
 import { parseDate } from "../functions/parseDate";
 import { isDateLikeFieldType } from "../functions/parseTemporal";
@@ -19,7 +20,11 @@ export function getWhere<T extends object>(
 ) {
   let where: Record<string, any> = {};
   const classRecord = getModel(classBase.tag);
-  const { types: fieldTypes, listPaths } = collectFieldMeta(classRecord.prototype);
+  const {
+    types: fieldTypes,
+    listPaths,
+    options: fieldOptions,
+  } = collectFieldMeta(classRecord.prototype);
 
   const conditions: Record<string, any> = {};
   const errors: { path: string; message: string }[] = [];
@@ -29,7 +34,9 @@ export function getWhere<T extends object>(
   for (const key of Object.keys(req.query ?? {})) {
     if (!Object.hasOwn(fieldTypes, key) || !req.query[key]) continue;
 
-    const condition = readCondicao(req.query[key] as string, key, fieldTypes, listPaths, errors);
+    const condition = readCondicao(req.query[key] as string, key, fieldTypes, listPaths, errors, {
+      fieldOptions,
+    });
     if (!condition) continue;
 
     if (!conditions[key]) conditions[key] = {};
@@ -86,9 +93,10 @@ function readCondicao(
   fieldTypes: Record<string, string>,
   listPaths: Set<string>,
   errors: { path: string; message: string }[],
+  meta: { fieldOptions: Record<string, FieldOptions> },
 ): Record<string, any> | null {
   try {
-    return createWhereConditionQuery(value, key, fieldTypes, listPaths);
+    return createWhereConditionQuery(value, key, fieldTypes, listPaths, meta.fieldOptions);
   } catch (erro) {
     if (!(erro instanceof FiltroInvalidoError)) throw erro;
     errors.push({ path: erro.path, message: erro.message });
@@ -126,6 +134,8 @@ interface TipoDoCampo {
   isString: boolean;
   isBoolean: boolean;
   isDate: boolean;
+  /** O `normalize` do `@Field`: o filtro procura o valor como ele foi gravado. */
+  normalize?: FieldNormalize;
 }
 
 /** `10-20`, `-5--1`, `1.5-2.5`. Um número negativo sozinho (`-5`) não é intervalo. */
@@ -177,7 +187,7 @@ const toDate = (valor: string, campo: TipoDoCampo, borda: "inicio" | "fim"): Dat
 const toEscalar = (valor: string, campo: TipoDoCampo): unknown => {
   if (campo.isNumeric) return toNumber(valor, campo);
   if (campo.isBoolean) return Controller.safe.Boolean(valor);
-  return valor;
+  return normalizeValue(valor, campo.normalize);
 };
 
 /** Valor de comparação (`gt`, `gte`, `lt`, `lte`): em data, a borda do dia que a comparação pede. */
@@ -220,7 +230,9 @@ const buildIgualdade = (valor: string, campo: TipoDoCampo): Record<string, unkno
 const buildBuscaPorTexto =
   (operador: "contains" | "startsWith" | "endsWith") =>
   (valor: string, campo: TipoDoCampo): Record<string, unknown> =>
-    campo.isString ? { [operador]: valor, mode: "insensitive" } : buildIgualdade(valor, campo);
+    campo.isString
+      ? { [operador]: normalizeValue(valor, campo.normalize), mode: "insensitive" }
+      : buildIgualdade(valor, campo);
 
 interface Filtro {
   build: (valor: string, campo: TipoDoCampo) => Record<string, unknown>;
@@ -265,15 +277,24 @@ const splitOperador = (valor: string): { operador?: string; valor: string } => {
     : { valor };
 };
 
+/** Campo cifrado não filtra: o mesmo valor gera textos diferentes no banco. */
+const requireFiltravel = (key: string, opcoes: FieldOptions | undefined) => {
+  if (!opcoes?.encrypted) return;
+  throw new FiltroInvalidoError(key, `O campo "${key}" não pode ser usado em filtro.`);
+};
+
 export function createWhereConditionQuery(
   value: string | string[],
   key: string,
   modelBase: any,
   listPaths: Set<string> = new Set(),
+  fieldOptions: Record<string, FieldOptions> = {},
 ): Record<string, any> {
+  requireFiltravel(key, fieldOptions[key]);
   const rawValues: string[] = Array.isArray(value) ? value : value.split(";").filter(Boolean);
   const tipo = modelBase[key];
   const campo: TipoDoCampo = {
+    normalize: fieldOptions[key]?.normalize,
     key,
     isNumeric: tipo === "number" || tipo === "bigint",
     isString: tipo === "string",

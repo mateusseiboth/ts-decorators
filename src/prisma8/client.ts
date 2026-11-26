@@ -53,6 +53,12 @@ export interface Prisma8Config {
    * `ORDER BY`. Sem elas, ordenar por relação falha alto.
    */
   ast?: Prisma8Ast;
+  /**
+   * O `param` de `@prisma/orm-family-sql/relational-core`, que o pacote não importa. Com ele, a
+   * data interpolada num trecho de SQL cru (`sql`, `toTemplate`) vai como parâmetro `timestamptz`,
+   * como no `$queryRaw` do Prisma 7. Sem ele, data no SQL cru lança.
+   */
+  param?: (value: unknown, options: { codecId: string }) => unknown;
 }
 
 /** O pedaço do AST do Prisma 8 que a ordenação por relação usa. */

@@ -4,6 +4,37 @@ Da versão mais nova para a mais antiga. As entradas marcadas como **base** vier
 de que este pacote nasceu (mesma origem, linhas separadas desde julho de 2026) e chegam aqui
 juntas na 2.0.0-rc.1. A versão entre parênteses é a da base, para quem compara as duas linhas.
 
+## 2.0.0-rc.34 (em andamento)
+
+### Paginação, filtro e camada de dados
+
+- **Quebra:** `getPaginate` responde 400 (`errors: [{ path: "page" | "offset", message }]`) para
+  `page`/`offset` zero, negativo ou não numérico. Antes ia para o Prisma (500) ou devolvia total
+  negativo. O que o `parseInt` lia continua valendo.
+- **Quebra:** listagem vazia sai no formato da cheia, `{ data: { data: [], paginacao } }`, no
+  `executePrismaQuery`, no `executeOrmQuery` e sem paginação. Antes era `{ data: [], paginate }`.
+  Página além da última traz o total real.
+- **Quebra:** o `logger` escreve uma linha JSON por evento em produção (`NODE_ENV`/`DEPLOY_ENV`
+  `production`), com `trace_id`, `request_id`, `tenant` e `user_id`, e mascara chaves sensíveis.
+  Fora de produção a saída é legível. `LOG_FORMAT=pretty|json` força um dos dois; `LOG_LEVEL`
+  vence o `TS_COMMONS_LOG_LEVEL`, que continua valendo.
+- `sql`, `joinSql`, `EMPTY_SQL`, `toTemplate` e `SqlFragment`: SQL cru do Prisma 8 em pedaços.
+  `configurePrisma8` aceita `param` para interpolar data.
+- `assertWhereFitsContract` e `InvalidFilterError` (400): nulo em coluna obrigatória.
+- `prepareRead`, `shareReads` e `readShared`: leituras repetidas do Prisma 8.
+- `@Field({ encrypted, normalize })`, `configureEncryption`, `reencryptColumn` e afins: campo
+  cifrado (AES-256-GCM) e normalizado, também no filtro do `getWhere`.
+- `updateById`, `readIfMatch` e `OptimisticLockError` (409): trava otimista pelo `updated_at`
+  com `@DAOFor(tag, { optimisticLock: true })`.
+- `afterCommit(tx, fn)`: o `runInTransaction` roda os ganchos depois do commit e os descarta no
+  rollback; o savepoint do `@TransactionalClass` descarta só os da escrita desfeita.
+- `setHandlerContext(get, require, { run, transactionKeys })`, `hasTenant` e
+  `runWithHandlerContext`.
+- Métricas do pacote por `@opentelemetry/api` (peer opcional, carregado só quando existe):
+  `recordMetric`, `incrementMetric`, `registerGauge`, `getTenantLabel` e os `BUCKETS_*`.
+- Fakes: `FakeModelMeta.required` (colunas NOT NULL no contrato) e `withoutOrdenacao` no lugar de
+  `semOrdenacao`, que continua aceito.
+
 ## 2.0.0-rc.1 (2026-10-16)
 
 Porte completo da base comum (até a 2.0.0-rc.15 dela) para este pacote, mantendo tudo o que só

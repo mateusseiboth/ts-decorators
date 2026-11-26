@@ -34,8 +34,38 @@ export function ModelTagged(target: any, context?: ClassDecoratorContext) {
   registry.models.set(target.tag, target);
 }
 
+export interface DAOForOptions {
+  /**
+   * Liga a trava otimista no `updateById` deste DAO: o update só grava se a versão que o
+   * cliente carregou ainda for a do banco. Default: `false`.
+   */
+  optimisticLock?: boolean;
+  /** Coluna que guarda a versão (o instante da última gravação). Default: `"updated_at"`. */
+  versionColumn?: string;
+}
+
+/** A trava otimista ligada para um DAO: a coluna da versão. */
+export interface OptimisticLock {
+  column: string;
+}
+
+// Classe do DAO → trava otimista. Classe sem a opção não entra.
+const optimisticLocks = new WeakMap<object, OptimisticLock>();
+
+const saveOptimisticLock = (target: object, options: DAOForOptions) => {
+  if (!options.optimisticLock) return;
+  optimisticLocks.set(target, { column: options.versionColumn ?? "updated_at" });
+};
+
+/** A trava do DAO (classe ou instância), procurando também nas classes base. */
+export function getOptimisticLock(dao: unknown): OptimisticLock | undefined {
+  const classe = typeof dao === "function" ? dao : (dao as object | undefined)?.constructor;
+  if (!classe || classe === Object || classe === Function.prototype) return undefined;
+  return optimisticLocks.get(classe) ?? getOptimisticLock(Object.getPrototypeOf(classe));
+}
+
 // Decorator para DAOs
-export function DAOFor(modelTag: any) {
+export function DAOFor(modelTag: any, options: DAOForOptions = {}) {
   return function (target: any, context?: ClassDecoratorContext) {
     if (!context || !isDecoratorContext(context)) {
       warnLegacy("DAOFor");
@@ -48,6 +78,7 @@ export function DAOFor(modelTag: any) {
     }
     target.model = Model; // vincula Model no DAO
     registry.daos.set(modelTag, target);
+    saveOptimisticLock(target, options);
   };
 }
 

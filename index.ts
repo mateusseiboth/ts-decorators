@@ -674,3 +674,57 @@ export {
   type TemporalTypeAlias,
   type TemporalTypeName,
 };
+
+// --- Camada de dados (paginação, filtro pelo contrato, Prisma 8) ---
+export type { DAOForOptions } from "./src/decorators/getModel";
+export { getFieldOptions, type FieldOptions } from "./src/decorators/initFields";
+export type { HandlerContextOptions } from "./src/handlers/context";
+export { OptimisticLockError } from "./src/errors/optimisticLock";
+export {
+  EncryptionError,
+  configureEncryption,
+  countByEncryptionKey,
+  decryptValue,
+  encryptValue,
+  isEncryptedValue,
+  keyFingerprint,
+  listEncryptionKeys,
+  reencryptColumn,
+  resetEncryption,
+  type ConfigureEncryptionOptions,
+  type EncryptionErrorCode,
+  type EncryptionKeyInfo,
+  type ReencryptColumnOptions,
+  type ReencryptReport,
+} from "./src/fields/encryption";
+export {
+  normalizeValue,
+  type FieldNormalize,
+  type FieldNormalizeFn,
+  type FieldNormalizeName,
+} from "./src/fields/normalize";
+export { checkEncryptedModels } from "./src/fields/rowFields";
+export { readIfMatch, updateById, type UpdateByIdOptions } from "./src/functions/updateById";
+export { afterCommit } from "./src/handlers/afterCommit";
+export {
+  BUCKETS_BYTES,
+  BUCKETS_DB,
+  BUCKETS_HTTP,
+  BUCKETS_PADRAO,
+  BUCKETS_QUEUE,
+} from "./src/observability/buckets";
+export {
+  getTenantLabel,
+  incrementMetric,
+  recordMetric,
+  registerGauge,
+  type GaugeObservation,
+  type IncrementMetricOptions,
+  type MetricAttributes,
+  type MetricInstrumentOptions,
+  type RecordMetricOptions,
+  type RegisterGaugeOptions,
+} from "./src/observability/metrics";
+export { assertWhereFitsContract, InvalidFilterError } from "./src/prisma8/contractFilter";
+export { prepareRead, readShared, shareReads, type PreparedQuery } from "./src/prisma8/reads";
+export { EMPTY_SQL, joinSql, sql, SqlFragment, toTemplate } from "./src/prisma8/sqlFragment";

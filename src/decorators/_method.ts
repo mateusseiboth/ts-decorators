@@ -10,20 +10,42 @@ import { isDecoratorContext, warnLegacy } from "./_proxy";
 
 export type MethodWrapper = (original: Function, methodName: string) => Function;
 
+const isAsyncFunction = (fn: unknown): boolean =>
+  typeof fn === "function" && fn.constructor.name === "AsyncFunction";
+
+/**
+ * Método `async` continua `async` depois de decorado; o síncrono continua síncrono.
+ *
+ * Decorator de classe que só envolve `AsyncFunction` (o `@Transaction()` dos apps) não enxergava
+ * o método cujo substituto é uma `function` comum: o método ficava sem transação, em silêncio.
+ * O envelope guarda o `this` e o nome do método original.
+ */
+export function matchAsync(original: Function, substituto: Function): Function {
+  if (!isAsyncFunction(original) || isAsyncFunction(substituto)) return substituto;
+  const envelope = async function (this: unknown, ...args: unknown[]) {
+    return substituto.apply(this, args);
+  };
+  Object.defineProperty(envelope, "name", { value: original.name, configurable: true });
+  return envelope;
+}
+
 export function makeMethodDecorator(name: string, build: MethodWrapper) {
+  const buildMatching: MethodWrapper = (original, methodName) =>
+    matchAsync(original, build(original, methodName));
+
   return function (...args: any[]): any {
     // TC39 Stage 3: (method, context)
     if (args.length === 2 && isDecoratorContext(args[1]) && args[1].kind === "method") {
       const original = args[0] as Function;
       const methodName = String(args[1].name);
-      return build(original, methodName);
+      return buildMatching(original, methodName);
     }
 
     // Legacy: (target, propertyKey, descriptor)
     warnLegacy(name);
     const propertyKey = args[1] as string;
     const descriptor = args[2] as PropertyDescriptor;
-    descriptor.value = build(descriptor.value, propertyKey);
+    descriptor.value = buildMatching(descriptor.value, propertyKey);
     return descriptor;
   };
 }

@@ -1,4 +1,4 @@
-import { getFieldTypes } from "../decorators/initFields";
+import { getFieldOptions, getFieldTypes, type FieldOptions } from "../decorators/initFields";
 import { createMetadataCache, freezeIfEnabled } from "../decorators/metadata";
 import { getNestedModels } from "../decorators/nestedModel";
 
@@ -17,6 +17,11 @@ export interface FieldMeta {
    * um filtro de lista válido no Prisma (ex.: `{posts: {some: {...}}}`).
    */
   listPaths: Set<string>;
+  /**
+   * Opções do `@Field({ ... })` por caminho, na mesma notação de `types`. Só os campos com
+   * opção (`encrypted`, `normalize`): o `getWhere` normaliza o filtro e recusa campo cifrado.
+   */
+  options: Record<string, FieldOptions>;
 }
 
 /**
@@ -32,18 +37,21 @@ const FIELD_META_CACHE = createMetadataCache<object, FieldMeta>();
  */
 function walk(target: any, prefix: string, ancestors: Set<any>): FieldMeta {
   const fields = getFieldTypes(target);
+  const fieldOptions = getFieldOptions(target);
   const nestedModels = getNestedModels(target);
   const types: Record<string, string> = {};
   const listPaths = new Set<string>();
+  const options: Record<string, FieldOptions> = {};
 
   const ctor = typeof target === "function" ? target : target?.constructor;
-  if (ctor && ancestors.has(ctor)) return { types, listPaths }; // ciclo detectado
+  if (ctor && ancestors.has(ctor)) return { types, listPaths, options }; // ciclo detectado
   const nextAncestors = new Set(ancestors);
   if (ctor) nextAncestors.add(ctor);
 
   for (const key in fields) {
     const path = `${prefix}${key}`;
     types[path] = fields[key] as string;
+    if (fieldOptions[key]) options[path] = fieldOptions[key];
 
     const nestedMeta = nestedModels[key];
     if (!nestedMeta) continue;
@@ -51,10 +59,11 @@ function walk(target: any, prefix: string, ancestors: Set<any>): FieldMeta {
     if (nestedMeta.isArray) listPaths.add(path);
     const child = walk((nestedMeta.model as any).prototype, `${path}.`, nextAncestors);
     Object.assign(types, child.types);
+    Object.assign(options, child.options);
     child.listPaths.forEach((p) => listPaths.add(p));
   }
 
-  return { types, listPaths };
+  return { types, listPaths, options };
 }
 
 /**

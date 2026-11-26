@@ -14,6 +14,14 @@
  *   e o navegador leria o horário como local.
  */
 
+import {
+  columnOptionsFor,
+  decodeFieldValue,
+  decodeTreeByModel,
+  encodeFieldValue,
+  prismaModelNameOf,
+  requireMappedModels,
+} from "../fields/rowFields";
 import { getEnumLabels, isNumericAsNumber } from "./client";
 
 /** O que o proxy de campo e o contrato dizem sobre a coluna. */
@@ -234,14 +242,22 @@ export function fieldCodecs(collection: unknown): Record<string, FieldCodec | un
   return Object.fromEntries(Object.entries(model.fields).map(([field, def]) => [field, def.type]));
 }
 
-/** Aplica `encodeForCodec` a cada coluna do payload, pelo contrato da coleção. */
+/**
+ * O caminho único de gravação: cada coluna do payload passa pelo `@Field` do model (normaliza e
+ * cifra, quando declarado) e depois pelo codec da coluna, pelo contrato da coleção. Aceita a
+ * coleção do Prisma 8 e o delegate do Prisma 7 (que não tem codec, só o `@Field`).
+ */
 export function encodeRowForCollection<T extends Record<string, unknown>>(
   collection: unknown,
   row: T,
 ): T {
+  requireMappedModels(collection);
   const codecs = fieldCodecs(collection);
+  const options = columnOptionsFor(prismaModelNameOf(collection));
   const out: Record<string, unknown> = {};
-  for (const [key, value] of Object.entries(row)) out[key] = encodeForCodec(value, codecs[key]);
+  for (const [key, value] of Object.entries(row)) {
+    out[key] = encodeForCodec(encodeFieldValue(options?.[key], value), codecs[key]);
+  }
   return out as T;
 }
 
@@ -256,6 +272,7 @@ function decodeModelRow(
   if (!row || typeof row !== "object" || isTemporal(row) || row instanceof Date) return row;
   const model = modelOf(contract, namespace, modelName);
   if (!model) return row;
+  const options = columnOptionsFor(modelName);
   const out: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(row as Record<string, unknown>)) {
     const relation = model.relations?.[key];
@@ -266,18 +283,21 @@ function decodeModelRow(
           relation.to?.model ?? "",
           value,
         )
-      : decodeForCodec(value, model.fields?.[key]?.type);
+      : decodeFieldValue(options?.[key], key, decodeForCodec(value, model.fields?.[key]?.type));
   }
   return out;
 }
 
 /**
- * Leitura: valor de enum vira rótulo em toda a árvore (linha, listas, relações incluídas),
- * seguindo as relações do contrato para decodificar cada model com o SEU mapa.
+ * O caminho único de leitura: valor de enum vira rótulo e campo cifrado é decifrado em toda a
+ * árvore (linha, listas, relações incluídas), seguindo as relações do contrato para decodificar
+ * cada model com o SEU mapa. Sem contrato (delegate do Prisma 7), só o `@Field` do model vale, e
+ * as relações seguem o `@Field(Model)`.
  */
 export function decodeRowsForCollection<T>(collection: unknown, rows: T): T {
+  requireMappedModels(collection);
   const meta = collection as CollectionMeta;
-  if (!meta.contract) return rows;
+  if (!meta?.contract) return decodeTreeByModel(prismaModelNameOf(collection), rows) as T;
   return decodeModelRow(
     meta.contract,
     meta.namespaceId ?? "public",
