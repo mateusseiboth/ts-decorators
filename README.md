@@ -2179,6 +2179,9 @@ c.get(Agenda);
   `undefined`. O handler precisa devolver (ou aguardar) o próprio trabalho.
 - **`listRouteDefinitions` inclui o `declareRoutes()`:** `this.route.post("/:id/ativar", { doc }, handler)`
   anota a rota no builder (`route.definitions()`).
+- **Herança no container:** `@Injectable() class Registry extends BaseRegistry {}` recebe as
+  dependências do construtor da base (inclusive os `@Inject(token)`); a subclasse que declara
+  construtor próprio usa o dela.
 - `@Get("/:id", { doc: { summary: "Aluno pelo id", tags: ["alunos"] } })`: o `doc` é livre (zod,
   JSON Schema...), o pacote só guarda.
 - `RouteBuilder` pode ser estendido: `router` e `defaultMiddlewares` são `protected` e o `extend`

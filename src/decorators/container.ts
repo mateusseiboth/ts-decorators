@@ -72,6 +72,40 @@ export function Inject(token: InjectionToken<unknown>): ParameterDecorator {
   };
 }
 
+/**
+ * A classe declara construtor próprio? Sem ele, o JavaScript usa o da classe-mãe, e a injeção
+ * também tem que vir de lá. Função que não é `class` (código transpilado) conta como própria.
+ */
+const declaresOwnConstructor = (classe: Function): boolean => {
+  const fonte = Function.prototype.toString.call(classe);
+  if (!/^class\b/.test(fonte)) return true;
+  if (!/^class\b[^{]*\bextends\b/.test(fonte)) return true;
+  return /(^|[\s;{}])constructor\s*\(/.test(fonte.slice(fonte.indexOf("{")));
+};
+
+interface ConstrutorInjetado {
+  deps: any[];
+  tokens: Record<number, InjectionToken<unknown>>;
+}
+
+/**
+ * Os parâmetros do construtor que vai rodar: o da própria classe, ou, sem construtor próprio, o
+ * da classe-mãe mais próxima que o declare. Cada nível lê só a PRÓPRIA metadata
+ * (`getOwnMetadata`): o `@Inject` da base não vale para o construtor da subclasse.
+ */
+function readConstrutor(target: Function): ConstrutorInjetado {
+  const deps =
+    (Reflect.getOwnMetadata("design:paramtypes", target) as any[] | undefined) ??
+    (Reflect.getOwnMetadata(DI_PARAMTYPES_KEY, target) as any[] | undefined);
+  const mae = Object.getPrototypeOf(target);
+  const isRaiz = !mae || mae === Function.prototype;
+  // Construtor próprio sem metadata nenhuma (o `constructor(...args) { super(...args) }` de um
+  // decorator que envolve a classe) repassa para a mãe: a injeção também vem de lá.
+  const usaMae = !isRaiz && (!declaresOwnConstructor(target) || deps === undefined);
+  if (usaMae) return readConstrutor(mae);
+  return { deps: deps ?? [], tokens: Reflect.getOwnMetadata(DI_INJECT_KEY, target) ?? {} };
+}
+
 class Container {
   private readonly singletons = new Map<any, any>();
   /** scopeKey → (target → instance) */
@@ -102,15 +136,7 @@ class Container {
     const cached = this.readCache<T>(target, scope);
     if (cached !== undefined) return cached;
 
-    const deps: any[] =
-      (Reflect.getMetadata("design:paramtypes", target) as any[]) ??
-      (Reflect.getMetadata(DI_PARAMTYPES_KEY, target) as any[]) ??
-      [];
-
-    const tokens: Record<number, InjectionToken<unknown>> = Reflect.getMetadata(
-      DI_INJECT_KEY,
-      target,
-    ) ?? {};
+    const { deps, tokens } = readConstrutor(target);
     const injections = deps.map((dep: any, index: number) => this.get(tokens[index] ?? dep));
     const instance = new target(...injections);
 

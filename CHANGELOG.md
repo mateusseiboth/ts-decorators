@@ -4,6 +4,15 @@ Da versão mais nova para a mais antiga. As entradas marcadas como **base** vier
 de que este pacote nasceu (mesma origem, linhas separadas desde julho de 2026) e chegam aqui
 juntas na 2.0.0-rc.1. A versão entre parênteses é a da base, para quem compara as duas linhas.
 
+## 2.0.0-rc.39 (2026-11-26)
+
+- **Container: construtor herdado.** A classe sem construtor próprio (`class Registry extends
+  BaseRegistry {}`) é resolvida pelos parâmetros e pelos `@Inject(token)` da classe-mãe mais
+  próxima que declara o construtor, sem repetir o construtor em cada subclasse. Cada nível lê só
+  a própria metadata: a subclasse com construtor próprio usa o dela, e o `@Inject` da base não vale
+  para o mesmo índice da subclasse. Construtor que só repassa os argumentos, sem metadata (o de uma
+  classe que envolve outra), também injeta pela classe envolvida.
+
 ## 2.0.0-rc.38 (2026-11-26)
 
 ### Quebra compatibilidade
