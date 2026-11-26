@@ -1139,6 +1139,25 @@ O `toTemplate` devolve os valores no tipo que o `raw.sql` aceita (`RawSqlValue`)
 interpolada vai como `timestamptz` quando o `configurePrisma8` recebe o `param` de
 `@prisma/orm-family-sql/relational-core`; sem ele, data no SQL cru lança.
 
+#### Campo de variante pela relação (model discriminado)
+
+O contrato aponta a relação para a BASE (`aluno Vinculo @relation(...)`; a variante não é tipo de
+relação no PSL). O model do projeto declara a relação com a classe da variante, que tem o campo:
+
+```ts
+@InitFields
+@ModelTagged
+class MensalidadeModel {
+  static tag = 40;
+  @Field(AlunoModel) aluno!: AlunoModel; // AlunoModel tem @Field() nome
+}
+```
+
+`?orderBy=aluno.nome` e `?aluno.nome=contains:ana` passam a funcionar no Prisma 8: o pacote lê as
+variantes no contrato e, para o campo da variante guardada na mesma tabela da base, monta a coluna
+com o alias da tabela relacionada. Variante em tabela própria não é suportada (o ORM responde o
+erro dele).
+
 #### Filtro conferido pelo contrato: `assertWhereFitsContract`
 
 `assertWhereFitsContract(colecao, where)` lança `InvalidFilterError` (`statusCode` 400) no nulo em

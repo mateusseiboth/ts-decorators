@@ -12,6 +12,7 @@
  */
 
 import { getPrisma8Ast, type Prisma8Ast } from "./client";
+import { scopeOf, scopeOfRelation, withVariantFields, type ModelScope } from "./variant";
 
 type Direction = "asc" | "desc";
 
@@ -129,12 +130,14 @@ function alvoNaRelacao(
   relacao: string,
   field: RelationField,
   caminho: Record<string, unknown>,
+  scope?: ModelScope,
 ): Alvo {
   const ast = requireAst(relacao);
   const [campo, resto] = passoDoCaminho(relacao, caminho);
   const alvos: Alvo[] = [];
+  // O acessor do relacionado ganha os campos das variantes do model alvo (ver `variant.ts`).
   const existe = field.some((relacionado) => {
-    alvos.push(alvoDoCampo(relacionado, campo, resto));
+    alvos.push(alvoDoCampo(withVariantFields(relacionado, scope), campo, resto, scope));
     return undefined;
   });
   const alvo = alvos[0];
@@ -146,9 +149,11 @@ function alvoNaRelacao(
   return { expr: ast.SubqueryExpr.of(subconsulta), direction: alvo.direction };
 }
 
-function alvoDoCampo(proxy: Proxy, campo: string, valor: unknown): Alvo {
+function alvoDoCampo(proxy: Proxy, campo: string, valor: unknown, scope?: ModelScope): Alvo {
   const field = proxy[campo];
-  if (isCaminho(valor) && isRelation(field)) return alvoNaRelacao(campo, field, valor);
+  if (isCaminho(valor) && isRelation(field)) {
+    return alvoNaRelacao(campo, field, valor, scopeOfRelation(scope, campo));
+  }
   if (typeof field?.buildAst === "function") {
     return { expr: field.buildAst(), direction: directionOf(campo, valor) };
   }
@@ -157,7 +162,12 @@ function alvoDoCampo(proxy: Proxy, campo: string, valor: unknown): Alvo {
   );
 }
 
-function lambdaDaRelacao(fieldName: string, caminho: Record<string, unknown>, campos: string[]) {
+function lambdaDaRelacao(
+  fieldName: string,
+  caminho: Record<string, unknown>,
+  campos: string[],
+  scope?: ModelScope,
+) {
   return (proxy: Proxy) => {
     const field = proxy[fieldName];
     if (!isRelation(field)) {
@@ -165,7 +175,7 @@ function lambdaDaRelacao(fieldName: string, caminho: Record<string, unknown>, ca
         `[@mateusseiboth/ts-decorators] Não é possível ordenar por "${fieldName}" no Prisma 8: esperado "asc"/"desc" (o campo não é relação), veio ${JSON.stringify(caminho)}.`,
       );
     }
-    const alvo = alvoNaRelacao(fieldName, field, caminho);
+    const alvo = alvoNaRelacao(fieldName, field, caminho, scopeOfRelation(scope, fieldName));
     const item = itemEmprestado(proxy, campos, alvo.expr, alvo.direction);
     if (item !== undefined) return item;
     throw new Error(
@@ -174,8 +184,8 @@ function lambdaDaRelacao(fieldName: string, caminho: Record<string, unknown>, ca
   };
 }
 
-function lambdaFor(fieldName: string, value: unknown, campos: string[]) {
-  if (isCaminho(value)) return lambdaDaRelacao(fieldName, value, campos);
+function lambdaFor(fieldName: string, value: unknown, campos: string[], scope?: ModelScope) {
+  if (isCaminho(value)) return lambdaDaRelacao(fieldName, value, campos, scope);
   const direction = directionOf(fieldName, value);
   return (proxy: Proxy) => {
     const field = proxy[fieldName];
@@ -198,13 +208,14 @@ function lambdaFor(fieldName: string, value: unknown, campos: string[]) {
 export function orderByLambdas(
   orderBy: unknown,
   campos: string[] = [],
+  scope?: ModelScope,
 ): Array<(proxy: Proxy) => unknown> {
   if (!orderBy) return [];
   const items = (Array.isArray(orderBy) ? orderBy : [orderBy]).filter(Boolean) as Array<
     Record<string, unknown>
   >;
   return items.flatMap((item) =>
-    Object.entries(item).map(([field, value]) => lambdaFor(field, value, campos)),
+    Object.entries(item).map(([field, value]) => lambdaFor(field, value, campos, scope)),
   );
 }
 
@@ -226,7 +237,7 @@ function fieldNames(collection: unknown): string[] {
 
 /** Encadeia o `orderBy` do Prisma 7 na coleção; sem ordenação, devolve a coleção intacta. */
 export function applyOrderBy<T extends Orderable>(collection: T, orderBy: unknown): T {
-  const lambdas = orderByLambdas(orderBy, fieldNames(collection));
+  const lambdas = orderByLambdas(orderBy, fieldNames(collection), scopeOf(collection));
   if (lambdas.length === 0) return collection;
   return collection.orderBy(lambdas);
 }

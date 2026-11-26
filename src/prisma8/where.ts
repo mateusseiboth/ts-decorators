@@ -15,6 +15,7 @@
  */
 import { getPrisma8 } from "./client";
 import { encodeForCodec, type FieldCodec } from "./temporal";
+import { scopeOf, scopeOfRelation, withVariantFields, type ModelScope } from "./variant";
 
 type Expression = unknown;
 
@@ -173,68 +174,88 @@ function scalarPredicates(field: FieldProxy, value: unknown): Expression[] {
     });
 }
 
-type RelationOp = (relation: RelationProxy, value: unknown) => Expression;
+type Nested = (value: unknown) => ((related: ModelProxy) => Expression | undefined) | undefined;
+
+type RelationOp = (relation: RelationProxy, value: unknown, nested: Nested) => Expression;
 
 const RELATION_OPS: Record<string, RelationOp> = {
-  some: (relation, value) => relation.some(nested(value)),
-  every: (relation, value) => relation.every(nested(value) ?? (() => undefined)),
-  none: (relation, value) => relation.none(nested(value)),
-  is: (relation, value) => (value === null ? relation.none() : relation.some(nested(value))),
-  isNot: (relation, value) =>
+  some: (relation, value, nested) => relation.some(nested(value)),
+  every: (relation, value, nested) => relation.every(nested(value) ?? (() => undefined)),
+  none: (relation, value, nested) => relation.none(nested(value)),
+  is: (relation, value, nested) =>
+    value === null ? relation.none() : relation.some(nested(value)),
+  isNot: (relation, value, nested) =>
     value === null ? relation.some() : getCombinators().not(relation.some(nested(value))),
 };
 
-/** Predicado aninhado para a relação; `{}` vira `undefined` (todos os relacionados). */
-function nested(value: unknown): ((related: ModelProxy) => Expression | undefined) | undefined {
-  if (!isPlainObject(value) || Object.keys(value).length === 0) return undefined;
-  return (related) => buildPredicate(related, value);
-}
+/**
+ * Predicado aninhado para a relação; `{}` vira `undefined` (todos os relacionados). O acessor do
+ * relacionado ganha os campos das variantes do model alvo (ver `variant.ts`).
+ */
+const buildNested =
+  (scope: ModelScope | undefined): Nested =>
+  (value) => {
+    if (!isPlainObject(value) || Object.keys(value).length === 0) return undefined;
+    return (related) => buildPredicate(withVariantFields(related, scope), value, scope);
+  };
 
-function relationPredicate(relation: RelationProxy, value: unknown): Expression {
+function relationPredicate(
+  relation: RelationProxy,
+  value: unknown,
+  scope: ModelScope | undefined,
+): Expression {
   if (value === null) return relation.none();
   if (!isPlainObject(value))
     throw new Error("[@mateusseiboth/ts-decorators] Filtro de relação precisa ser objeto ou null.");
+  const nested = buildNested(scope);
   const explicit = Object.keys(value).filter((key) => key in RELATION_OPS);
   if (explicit.length === 0) return relation.some(nested(value));
-  return conjunction(explicit.map((op) => RELATION_OPS[op]!(relation, value[op])))!;
+  return conjunction(explicit.map((op) => RELATION_OPS[op]!(relation, value[op], nested)))!;
 }
 
-type LogicalOp = (proxy: ModelProxy, value: unknown) => Expression[];
+type LogicalOp = (proxy: ModelProxy, value: unknown, scope?: ModelScope) => Expression[];
 
 /**
  * Cada operador lógico contribui com as partes de UMA conjunção: `AND` espalha as partes de
  * cada sub-where (fica plano, sem `and(and(...))`), `OR` e `NOT` viram uma parte cada.
  */
 const LOGICAL_OPS: Record<string, LogicalOp> = {
-  AND: (proxy, value) => asList(value).flatMap((w) => buildParts(proxy, w)),
-  OR: (proxy, value) => {
+  AND: (proxy, value, scope) => asList(value).flatMap((w) => buildParts(proxy, w, scope)),
+  OR: (proxy, value, scope) => {
     const parts = asList(value)
-      .map((w) => buildPredicate(proxy, w))
+      .map((w) => buildPredicate(proxy, w, scope))
       .filter((p) => p !== undefined);
     if (parts.length === 0) return [];
     if (parts.length === 1) return [parts[0]];
     return [getCombinators().or(...parts)];
   },
-  NOT: (proxy, value) => {
-    const inner = conjunction(asList(value).map((w) => buildPredicate(proxy, w)));
+  NOT: (proxy, value, scope) => {
+    const inner = conjunction(asList(value).map((w) => buildPredicate(proxy, w, scope)));
     if (inner === undefined) return [];
     return [getCombinators().not(inner)];
   },
 };
 
-function fieldPredicates(proxy: ModelProxy, key: string, value: unknown): Expression[] {
+function fieldPredicates(
+  proxy: ModelProxy,
+  key: string,
+  value: unknown,
+  scope?: ModelScope,
+): Expression[] {
   const target = proxy[key];
-  if (isRelationProxy(target)) return [relationPredicate(target, value)];
+  if (isRelationProxy(target)) {
+    return [relationPredicate(target, value, scopeOfRelation(scope, key))];
+  }
   if (isFieldProxy(target)) return scalarPredicates(target, value);
   throw new Error(`[@mateusseiboth/ts-decorators] Campo desconhecido no filtro: ${key}`);
 }
 
-function buildParts(proxy: ModelProxy, where: unknown): Expression[] {
+function buildParts(proxy: ModelProxy, where: unknown, scope?: ModelScope): Expression[] {
   if (!isPlainObject(where)) return [];
   return Object.entries(where)
     .filter(([, value]) => value !== undefined)
     .flatMap(([key, value]) =>
-      (LOGICAL_OPS[key] ?? ((p, v) => fieldPredicates(p, key, v)))(proxy, value),
+      (LOGICAL_OPS[key] ?? ((p, v, s) => fieldPredicates(p, key, v, s)))(proxy, value, scope),
     );
 }
 
@@ -242,8 +263,12 @@ function buildParts(proxy: ModelProxy, where: unknown): Expression[] {
  * Monta a expressão do Prisma 8 para um `where` do Prisma 7. `undefined` quando não há
  * condição nenhuma (o chamador não deve encadear `.where` nesse caso).
  */
-export function buildPredicate(proxy: ModelProxy, where: unknown): Expression | undefined {
-  return conjunction(buildParts(proxy, where));
+export function buildPredicate(
+  proxy: ModelProxy,
+  where: unknown,
+  scope?: ModelScope,
+): Expression | undefined {
+  return conjunction(buildParts(proxy, where, scope));
 }
 
 interface Filterable {
@@ -253,8 +278,9 @@ interface Filterable {
 /** Encadeia o `where` do Prisma 7 na coleção; sem condição, devolve a coleção intacta. */
 export function applyWhere<T extends Filterable>(collection: T, where: unknown): T {
   if (!isPlainObject(where) || Object.keys(where).length === 0) return collection;
+  const scope = scopeOf(collection);
   return collection.where((proxy: ModelProxy) => {
-    const predicate = buildPredicate(proxy, where);
+    const predicate = buildPredicate(proxy, where, scope);
     if (predicate === undefined)
       throw new Error("[@mateusseiboth/ts-decorators] Filtro sem condição efetiva.");
     return predicate;

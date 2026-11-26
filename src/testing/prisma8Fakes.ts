@@ -24,6 +24,12 @@ export interface FakeModelMeta {
    * nestas, `true` nas outras), como no contrato emitido. Sem ela, o contrato não diz.
    */
   required?: string[];
+  /** Model discriminado: valor do discriminador → model da variante (`{ ALUNO: "VinculoDeAluno" }`). */
+  variants?: Record<string, string>;
+  /** Variante: o model base (`@@base`). Sem `table`, a variante mora na tabela da base. */
+  base?: string;
+  /** Tabela do model. Default: o nome do model (a variante, a tabela da base). */
+  table?: string;
 }
 
 export type FakeContractModels = Record<string, FakeModelMeta>;
@@ -41,11 +47,14 @@ const buildField = (meta: FakeModelMeta, field: string) => ({
   ...(meta.required ? { nullable: !meta.required.includes(field) } : {}),
 });
 
+/** A tabela do model: a declarada, a da base (variante) ou o nome do model. */
+const tableOf = (models: FakeContractModels, name: string): string => {
+  const meta = models[name];
+  return meta?.table ?? (meta?.base ? tableOf(models, meta.base) : name);
+};
+
 export function fakeContract(models: FakeContractModels) {
-  const out: Record<
-    string,
-    { fields: Record<string, unknown>; relations: Record<string, unknown> }
-  > = {};
+  const out: Record<string, Record<string, unknown>> = {};
   for (const [name, meta] of Object.entries(models)) {
     out[name] = {
       fields: Object.fromEntries(allFields(meta).map((f) => [f, buildField(meta, f)])),
@@ -55,6 +64,22 @@ export function fakeContract(models: FakeContractModels) {
           { cardinality: "1:N", to: { model: to, namespace: "public" } },
         ]),
       ),
+      storage: {
+        table: tableOf(models, name),
+        namespaceId: "public",
+        fields: Object.fromEntries(allFields(meta).map((f) => [f, { column: f }])),
+      },
+      ...(meta.variants
+        ? {
+            variants: Object.fromEntries(
+              Object.entries(meta.variants).map(([valor, model]) => [
+                valor,
+                { model, namespace: "public" },
+              ]),
+            ),
+          }
+        : {}),
+      ...(meta.base ? { base: { model: meta.base, namespace: "public" } } : {}),
     };
   }
   // O contrato do fake só declara os models do teste: a conferência das classes cifradas (que
@@ -502,11 +527,23 @@ export function fakeTx8(
 export function fakeDb8() {
   return {
     raw: {
-      sql: (strings: TemplateStringsArray, ...values: unknown[]) => {
+      sql: (strings: TemplateStringsArray, ...interpolados: unknown[]) => {
         const sql = strings.raw.join("?");
+        // Expressão interpolada (a coluna, no ORM real) entra pelo `buildAst`, como no `raw.sql`.
+        const values = interpolados.map((valor) =>
+          typeof (valor as { buildAst?: unknown })?.buildAst === "function"
+            ? (valor as { buildAst(): unknown }).buildAst()
+            : valor,
+        );
         return {
           affectedCount: () => ({ build: () => ({ sql, values, kind: "execute" }) }),
           returnsRow: (spec: unknown) => ({ build: () => ({ sql, values, spec, kind: "query" }) }),
+          // A expressão crua tipada; o `buildAst` fica fora da comparação dos testes.
+          returns: (returns: unknown) =>
+            Object.defineProperty({ sql, values, returns }, "buildAst", {
+              value: () => ({ sql, values, returns }),
+              enumerable: false,
+            }),
         };
       },
     },

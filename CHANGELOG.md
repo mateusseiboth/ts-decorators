@@ -4,6 +4,19 @@ Da versão mais nova para a mais antiga. As entradas marcadas como **base** vier
 de que este pacote nasceu (mesma origem, linhas separadas desde julho de 2026) e chegam aqui
 juntas na 2.0.0-rc.1. A versão entre parênteses é a da base, para quem compara as duas linhas.
 
+## 2.0.0-rc.41 (2026-11-26)
+
+- **Ordenar e filtrar por campo de variante através de relação (Prisma 8).** Com a relação do
+  contrato apontando para a base de um model discriminado (`aluno Vinculo`, com
+  `@@discriminator(tipo)`) e o campo numa variante guardada na mesma tabela
+  (`@@base(Vinculo, "ALUNO")`, com `nome`), `orderBy=aluno.nome` e `aluno.nome=contains:x` passam
+  a funcionar no `executeOrmQuery`, no `applyOrderBy` e no `applyWhere`. O acessor que o ORM
+  entrega pela relação é o da base, sem os campos da variante; o pacote monta a coluna da variante
+  com o alias da tabela relacionada e as comparações como expressão crua booleana. Conferido no
+  `@prisma/orm-postgres` 8.0.0-rc.25. Variante em tabela própria continua com o erro do ORM.
+- Fakes: `FakeModelMeta` ganha `variants`, `base` e `table`, e o contrato fake sai com `storage`;
+  o `raw.sql` do `fakeDb8` aceita `.returns(codec)`.
+
 ## 2.0.0-rc.40 (2026-11-26)
 
 - **`toTemplate` no tipo do `raw.sql` do Prisma 8.** Os valores saem tipados como `RawSqlValue`
