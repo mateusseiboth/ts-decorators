@@ -42,21 +42,40 @@ export interface IResponsePaginate<T> {
  * Percorre TODA linha de TODA listagem, então evita alocação: nada de
  * `Object.entries` + `reduce` criando um array de pares por objeto visitado.
  */
-export function convertBigIntValues<T>(data: T): T {
+export interface ConvertValuesOptions {
+  /** Mantém `Date` como `Date` (e o `Temporal` vira `Date`) em vez do texto ISO. Default: `false`. */
+  reviveDates?: boolean;
+}
+
+/** Como a data sai: texto ISO (o padrão, pronto para JSON) ou `Date` (`reviveDates`). */
+const DATA_DE_SAIDA = {
+  texto: {
+    date: (d: Date): unknown => d.toISOString(),
+    temporal: (t: any): unknown => temporalToIso(t),
+  },
+  date: {
+    date: (d: Date): unknown => d,
+    temporal: (t: any): unknown => new Date(temporalToIso(t)),
+  },
+} as const;
+
+export function convertBigIntValues<T>(data: T, options?: ConvertValuesOptions): T {
   if (typeof data === "bigint") return data.toString() as unknown as T;
 
   if (Array.isArray(data)) {
     const out = new Array(data.length);
-    for (let i = 0; i < data.length; i++) out[i] = convertBigIntValues(data[i]);
+    for (let i = 0; i < data.length; i++) out[i] = convertBigIntValues(data[i], options);
     return out as unknown as T;
   }
 
+  const saida = DATA_DE_SAIDA[options?.reviveDates ? "date" : "texto"];
+
   if (data instanceof Date) {
-    return data.toISOString() as unknown as T;
+    return saida.date(data) as T;
   }
 
   if (isTemporal(data)) {
-    return temporalToIso(data) as unknown as T;
+    return saida.temporal(data) as T;
   }
 
   if (data !== null && typeof data === "object") {
@@ -65,7 +84,7 @@ export function convertBigIntValues<T>(data: T): T {
     for (let i = 0; i < keys.length; i++) {
       const key = keys[i] as string;
       const value = (data as Record<string, any>)[key];
-      out[key] = typeof value === "bigint" ? value.toString() : convertBigIntValues(value);
+      out[key] = typeof value === "bigint" ? value.toString() : convertBigIntValues(value, options);
     }
     return out as T;
   }
@@ -211,6 +230,19 @@ export interface PaginateOptions {
   deriveTotal?: boolean;
   /** Reaproveita a contagem entre páginas da mesma listagem, por N ms. */
   countTtlMs?: number;
+  /** Mantém as datas como `Date` em vez do texto ISO. */
+  reviveDates?: boolean;
+  /** Monta o tipo do domínio a partir de cada linha (depois da conversão). */
+  mapRow?: (row: any) => unknown;
+}
+
+/** As linhas como a API entrega: bigint em texto, datas pelo `reviveDates` e o `mapRow`. */
+export function convertRows<T>(
+  rows: unknown,
+  options: ConvertValuesOptions & { mapRow?: (row: any) => unknown },
+): T[] {
+  const convertidas = convertBigIntValues(rows, options) as unknown[];
+  return (options.mapRow ? convertidas.map(options.mapRow) : convertidas) as T[];
 }
 
 /** As três idas ao banco de uma listagem, abstraídas do client (Prisma 7 ou 8). */
@@ -286,7 +318,7 @@ export async function paginar<T>(
       ? await runOptimized(sources, options, ids, readLinhas, deriveTotal, countTtlMs)
       : [await readLinhas(), await sources.fetchCount()];
 
-  return buildPage<T>(convertBigIntValues(data) as T[], count, page, take);
+  return buildPage<T>(convertRows<T>(data, options), count, page, take);
 }
 
 /** Número grande do banco (bigint) vira texto, como nas linhas; o resto vai como veio. */
@@ -338,6 +370,10 @@ export async function executePrismaQuery<T>(
     deriveTotal?: boolean;
     /** Reaproveita a contagem entre páginas da mesma listagem, por N ms. */
     countTtlMs?: number;
+    /** Mantém as datas como `Date` em vez do texto ISO. */
+    reviveDates?: boolean;
+    /** Monta o tipo do domínio a partir de cada linha. */
+    mapRow?: (row: any) => unknown;
     /** Soma e contagem sobre o filtro inteiro, em `data.resumo`. */
     summary?: SummaryOptions;
   },
@@ -353,7 +389,11 @@ export async function executePrismaQuery<T>(
     where: options.where,
     deriveTotal: options.deriveTotal,
     countTtlMs: options.countTtlMs,
+    reviveDates: options.reviveDates,
+    mapRow: options.mapRow,
   };
+  delete options.reviveDates;
+  delete options.mapRow;
   delete options.countTtlMs;
   delete options.deriveTotal;
   delete options.page;

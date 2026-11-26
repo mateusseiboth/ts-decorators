@@ -9,6 +9,7 @@
 import {
   applyColumnProjection,
   convertBigIntValues,
+  convertRows,
   buildPage,
   emptyPage,
   paginar,
@@ -35,6 +36,10 @@ export interface PagedQueryOptions extends QueryOptions {
   columns?: Record<string, unknown>;
   deriveTotal?: boolean;
   countTtlMs?: number;
+  /** Mantém as datas como `Date` (e o `Temporal` vira `Date`) em vez do texto ISO. */
+  reviveDates?: boolean;
+  /** Monta o tipo do domínio a partir de cada linha, depois da conversão. */
+  mapRow?: (row: any) => unknown;
   /** Soma e contagem sobre o filtro inteiro, em `data.resumo`. */
   summary?: SummaryOptions;
 }
@@ -117,7 +122,7 @@ async function executeSemPaginacao<T>(
 ): Promise<IResponsePaginate<T>> {
   const rows = await applyQueryOptions(collection, options).all();
   if (!rows.length) return emptyPage<T>(options.page ?? 1);
-  const data = convertBigIntValues(decodeRowsForCollection(collection, rows)) as T[];
+  const data = convertRows<T>(decodeRowsForCollection(collection, rows), options);
   return buildPage<T>(data, data.length, options.page, undefined);
 }
 

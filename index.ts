@@ -939,3 +939,9 @@ export {
 } from "./src/decorators/http-methods";
 export type { RegistryRouterOptions } from "./src/decorators/registry-router";
 export { isContextualInjector, markContextualInjector } from "./src/handlers/companyId";
+
+// --- Montagem com o container do app, respond nos builders e tipos do domínio nas listagens ---
+export type { RouteMount } from "./src/decorators/folder-router";
+export type { RouteBuilderConfig } from "./src/decorators/router-builder";
+export type { RouteHandler } from "./src/decorators/routeResponse";
+export type { ConvertValuesOptions } from "./src/functions/sql";

@@ -26,7 +26,7 @@ bun add github:mateusseiboth/ts-decorators
 ```bash
 bun add typescript reflect-metadata express @types/express zod
 # opcionais, só para o motor de relatórios:
-bun add handlebars playwright sharp pdf-lib
+bun add handlebars playwright pdf-lib
 ```
 
 ### tsconfig.json
@@ -2170,6 +2170,15 @@ c.register(RELOGIO, { agora: () => Date.now() });
 c.get(Agenda);
 ```
 
+- **Container do app na montagem:** `folderRouter(app, pasta, { container })` ou
+  `@RegistryRouter({ folder, container })`; o `index.ts` de cada pasta recebe
+  `registry(router, { container })` e resolve o registry por ele.
+- **`respond` nas rotas do `declareRoutes()`:** `new RouteBuilder(router, [], { respond })` aplica o
+  mesmo gancho a toda rota do builder (e dos do `extend`). O `respond` roda depois que o último
+  handler termina, sempre que ninguém respondeu e o handler não chamou `next`, inclusive com
+  `undefined`. O handler precisa devolver (ou aguardar) o próprio trabalho.
+- **`listRouteDefinitions` inclui o `declareRoutes()`:** `this.route.post("/:id/ativar", { doc }, handler)`
+  anota a rota no builder (`route.definitions()`).
 - `@Get("/:id", { doc: { summary: "Aluno pelo id", tags: ["alunos"] } })`: o `doc` é livre (zod,
   JSON Schema...), o pacote só guarda.
 - `RouteBuilder` pode ser estendido: `router` e `defaultMiddlewares` são `protected` e o `extend`
@@ -2434,7 +2443,7 @@ POST /forge/:id → loadDefinition (app resolve o modelo) → engine.enqueue (SQ
 **1. Dependências** (peer deps opcionais — só quem gera PDF precisa):
 
 ```bash
-bun add github:mateusseiboth/ts-decorators playwright handlebars sharp pdf-lib
+bun add github:mateusseiboth/ts-decorators playwright handlebars pdf-lib
 npx playwright install chromium
 # pdfunite (merge multi-parte) é pacote do SISTEMA, não do npm:
 sudo dnf install poppler-utils   # Fedora — apt install poppler-utils em Debian/Ubuntu
@@ -2588,7 +2597,8 @@ export const EXTERNALIZE_HEADER_IMAGE = true;       // brasão por arquivo (1 ca
 
 Os partials `header.hbs`, `footer.hbs` e `assinaturas.hbs` vêm de `partialsDir` e
 viram o cabeçalho/rodapé do `page.pdf()` (margens 130px/70px). `header.brasaoURL`
-é baixado, comprimido (`sharp`, se instalado) e injetado como `header.brasaoBase64`.
+é baixado, comprimido pelo `Bun.Image` (Bun >= 1.4; WebP, sem aumentar) e injetado como
+`header.brasaoBase64`. SVG não é aceito: o relatório sai sem o brasão.
 
 ### Formatos de saída (Strategy)
 
@@ -2780,6 +2790,13 @@ const result = await executePrismaQuery(prisma.product, options);
 
 > **⚠️** The names are historical: `totalPage` is the **number of matching records** (the `count`) and `total` is the **number of pages** (`Math.ceil(count / take)`).
 
+#### Tipos do domínio: `reviveDates` e `mapRow`
+
+O padrão serializa para JSON: `bigint` e datas viram texto. Para usar a listagem no código (e não
+só devolver para a tela), `reviveDates: true` mantém as datas como `Date` (o `Temporal` vira
+`Date`), e `mapRow(row)` monta o tipo do domínio de cada linha. Valem no `executePrismaQuery` e no
+`executeOrmQuery`.
+
 #### Quantas consultas isso custa
 
 A busca das PKs é separada de propósito: ela percorre o índice sem carregar coluna nenhuma, e
@@ -2954,10 +2971,10 @@ bun test
 Run them in that order before finishing any change — all four must pass. The configuration lives in
 `.oxfmtrc.json` and `.oxlintrc.json`; `tsconfig.json` typechecks `src` and `index.ts` with the Bun types.
 
-> **ℹ️ Optional peers in devDependencies:** `pdf-lib`, `playwright` and `sharp` are OPTIONAL peer
+> **ℹ️ Optional peers in devDependencies:** `pdf-lib` and `playwright` are OPTIONAL peer
 > dependencies of the published package, but they are installed for development so the report worker
-> typechecks. Tests must never depend on whether they happen to be installed — simulate absence with
-> `mock.module` (see `tests/report.image.test.ts`).
+> typechecks. Tests must never depend on whether they happen to be installed. Image compression uses
+> only `Bun.Image` (see `tests/report.image.test.ts`).
 
 ---
 

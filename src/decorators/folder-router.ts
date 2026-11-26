@@ -5,6 +5,7 @@ import { Router } from "express";
 import type { Express, RequestHandler } from "express";
 
 import { logger } from "../functions/logger";
+import { container as containerGlobal, type Container } from "./container";
 import {
   endpointsOf,
   formatRoutesTable,
@@ -32,7 +33,17 @@ export type FolderRouterOptions = {
   prefix?: string;
   /** Leva os params do caminho de montagem (`/academias/:academiaId`) para as rotas. */
   mergeParams?: boolean;
+  /**
+   * O container do app (`createContainer()`), entregue a cada `registry(router, { container })`
+   * para o `container.get` dele. Default: o container global.
+   */
+  container?: Container;
 };
+
+/** O que o `folderRouter` entrega ao `registry(router, montagem)` de cada pasta. */
+export interface RouteMount {
+  container: Container;
+}
 
 /**
  * O arquivo de middlewares de uma pasta. O `middlewares` que ele exporta vale para a pasta e para
@@ -120,7 +131,8 @@ export async function folderRouter(
       logger.debug(`Applying middlewares for ${routePath}: ${aplicados.length} middlewares found`);
       app.use(routePath, ...aplicados, router);
 
-      await imported.registry(router);
+      const montagem: RouteMount = { container: options?.container ?? containerGlobal };
+      await imported.registry(router, montagem);
 
       const rota = { path: routePath, endpoints: endpointsOf(router) };
       recordRoute(rota);

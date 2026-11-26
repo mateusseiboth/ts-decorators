@@ -4,6 +4,32 @@ Da versão mais nova para a mais antiga. As entradas marcadas como **base** vier
 de que este pacote nasceu (mesma origem, linhas separadas desde julho de 2026) e chegam aqui
 juntas na 2.0.0-rc.1. A versão entre parênteses é a da base, para quem compara as duas linhas.
 
+## 2.0.0-rc.38 (2026-11-26)
+
+### Quebra compatibilidade
+
+- **O `sharp` saiu do pacote.** A compressão do brasão do relatório usa só o `Bun.Image` (Bun >=
+  1.4): redimensiona para dentro da caixa sem aumentar, grava WebP com qualidade e lê PNG, JPEG,
+  WebP, GIF, BMP, TIFF, HEIC e AVIF. SVG deixa de ser aceito (o `Bun.Image` não rasteriza): o
+  relatório sai sem o brasão e o motivo vai para o log. Sem `Bun.Image` (Bun antigo), o brasão
+  segue no formato original. Quem instalava o `sharp` só para o pacote pode removê-lo.
+- **`respond` roda também com `undefined`.** No `applyControllerRoutes` (rc.36), o `respond` só
+  rodava com retorno definido; agora roda sempre que ninguém respondeu e o handler não chamou
+  `next`, e o projeto decide o 204.
+
+### Novo
+
+- `folderRouter(app, pasta, { container })`, `@RegistryRouter({ container })`: cada
+  `registry(router, { container })` recebe o container do app (o global, sem a opção).
+- `new RouteBuilder(router, middlewares, { respond })`: o mesmo `respond` para as rotas do
+  `declareRoutes()`, depois que o último handler termina (depois do commit). Vale nos builders do
+  `extend`.
+- `RouteBuilder.get(path, { doc }, ...handlers)` (e os demais verbos): opções da rota no segundo
+  argumento. O builder anota cada rota (`definitions()`), e o `listRouteDefinitions(registry)`
+  devolve o `@Rest`, os verbos do controller e o `declareRoutes()` juntos.
+- `reviveDates` e `mapRow` no `executeOrmQuery` e no `executePrismaQuery`: as datas saem como
+  `Date` (o padrão continua o texto ISO) e cada linha vira o tipo do domínio.
+
 ## 2.0.0-rc.37 (2026-11-26)
 
 - **O aviso "LEGACY" saiu do pacote.** O ts-decorators é do modo legado (`experimentalDecorators`

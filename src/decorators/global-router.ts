@@ -41,6 +41,7 @@ export function GlobalRouter() {
             middlewares: route.middlewares,
             prefix: route.prefix,
             mergeParams: route.mergeParams,
+            container: route.container,
           });
 
           if (typeof this[route.methodName] === "function") {

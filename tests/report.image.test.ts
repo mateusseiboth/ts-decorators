@@ -1,13 +1,10 @@
-import { afterEach, describe, expect, mock, test } from "bun:test";
+import { afterEach, describe, expect, test } from "bun:test";
 
 import { compressReportImage } from "../src/report/worker/reportImage";
 
 /**
- * Compressao do brasao. O caminho exercitado aqui e o do `Bun.Image` (Bun >= 1.4).
- * O `sharp` e peer OPCIONAL (esta em devDependencies so para o typecheck do worker);
- * o cenario "sem `Bun.Image` e sem `sharp`" — o que antes deixava o brasao passar
- * sem compressao nenhuma — e simulado com `mock.module`, e nao pela ausencia do
- * pacote: teste que depende do que esta instalado quebra quando alguem instala.
+ * Compressao do brasao, so pelo `Bun.Image` (Bun >= 1.4). Sem ele (Bun antigo), o brasao
+ * passa como veio e o log avisa que precisa do Bun 1.4.
  */
 const PNG_320x200 = Buffer.from(
   "iVBORw0KGgoAAAANSUhEUgAAAUAAAADICAIAAAAWZq/8AAAACXBIWXMAAAPoAAAD6AG1e1JrAAABvUlEQVR42u3TQQkAAAgEwXub2IjGMoQvYWASLGyqB3gqEoCBAQMDBgYDAwYGDAwYGAwMGBgwMBgYMDBgYMDAYGDAwICBAQODgQEDAwYGAwMGBgwMGBgMDBgYMDBgYDAwYGDAwGBgwMCAgQEDg4EBAwMGBgOrAAYGDAwYGAwMGBgwMGBgMDBgYMDAYGDAwICBAQODgQEDAwYGDAwGBgwMGBgMDBgYMDBgYDAwYGDAwICBwcCAgQEDg4EBAwMGBgwMBgYMDBgYDAwYGDAwYGAwMGBgwMCAgcHAgIEBA4OBAQMDBgYMDAYGDAwYGDAwGBgwMGBgMDBgYMDAgIHBwICBAQMDBgYDAwYGDAwGBgwMGBgwMBgYMDBgYDAwYGDAwICBwcCAgQEDAwYGAwMGBgwMBgYMDBgYMDAYGDAwYGDAwGBgwMCAgcHAgIEBAwMGBgMDBgYMDAZWAQwMGBgwMBgYMDBgYMDAYGDAwICBwcCAgQEDAwYGAwMGBgwMGBgMDBgYMDAYGDAwYGDAwGBgwMCAgQEDg4EBAwMGBgMDBgYMDBgYDAwYGDAwGBgwMGBgwMBgYMDAgIEBA4OBAQMDFwvv31bfj2g+IQAAAABJRU5ErkJggg==",
@@ -17,6 +14,24 @@ const PNG_64x48 = Buffer.from(
   "iVBORw0KGgoAAAANSUhEUgAAAEAAAAAwCAIAAAAuKetIAAAACXBIWXMAAAPoAAAD6AG1e1JrAAAAQ0lEQVRo3u3PQQkAAAgEsEty/aMYywp+hcEKLNO+FgEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQGBqwWJJzC1rWH8dQAAAABJRU5ErkJggg==",
   "base64",
 );
+
+/** BMP 24 bits sem compressão, como o que alguns servidores entregam com a extensão errada. */
+const buildBmp = (width: number, height: number): Buffer => {
+  const stride = Math.ceil((width * 3) / 4) * 4;
+  const tamanho = 54 + stride * height;
+  const bmp = Buffer.alloc(tamanho, 0x80);
+  bmp.write("BM", 0, "ascii");
+  bmp.writeUInt32LE(tamanho, 2);
+  bmp.writeUInt32LE(54, 10);
+  bmp.writeUInt32LE(40, 14);
+  bmp.writeInt32LE(width, 18);
+  bmp.writeInt32LE(height, 22);
+  bmp.writeUInt16LE(1, 26);
+  bmp.writeUInt16LE(24, 28);
+  bmp.writeUInt32LE(0, 30);
+  bmp.writeUInt32LE(stride * height, 34);
+  return bmp;
+};
 
 const bunGlobal = globalThis as unknown as { Bun: { Image?: unknown } };
 const IMAGE_ORIGINAL = bunGlobal.Bun.Image;
@@ -40,8 +55,8 @@ describe("compressReportImage", () => {
   });
 
   /**
-   * `Bun.Image.resize` AUMENTA a imagem, ao contrario do `withoutEnlargement` do sharp.
-   * Brasao pequeno esticado para 256 sairia borrado e maior que o original.
+   * `Bun.Image.resize` AUMENTA a imagem. Brasao pequeno esticado para 256 sairia borrado e
+   * maior que o original.
    */
   test("NAO aumenta imagem menor que a caixa", async () => {
     const saida = await compressReportImage(PNG_64x48, { maxWidth: 256, maxHeight: 256 });
@@ -52,13 +67,9 @@ describe("compressReportImage", () => {
     expect(saida.height).toBe(48);
   });
 
-  test("sem Bun.Image e sem sharp: devolve o original e avisa que precisa do Bun 1.4", async () => {
+  test("sem Bun.Image: devolve o original e avisa que precisa do Bun 1.4", async () => {
     // `Bun.Image` e writable mas nao configurable: da para sobrescrever, nao para deletar.
     bunGlobal.Bun.Image = undefined;
-    // Simula o `sharp` ausente: o import dinamico do loadSharp passa a falhar.
-    mock.module("sharp", () => {
-      throw new Error("sharp nao instalado (simulado)");
-    });
     const avisos: string[] = [];
     const original = console.warn;
     console.warn = (...args: unknown[]) => void avisos.push(args.map(String).join(" "));
@@ -71,5 +82,23 @@ describe("compressReportImage", () => {
     } finally {
       console.warn = original;
     }
+  });
+
+  test("BMP vai pelo Bun.Image e sai webp", async () => {
+    const saida = await compressReportImage(buildBmp(300, 200), { maxWidth: 128, maxHeight: 128 });
+    expect(saida.mimeType).toBe("image/webp");
+    expect(saida.originalWidth).toBe(300);
+    expect(saida.width).toBeLessThanOrEqual(128);
+  });
+
+  test("SVG é recusado: sem rasterizador, o relatório sai sem o brasão", async () => {
+    const svg = Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"/>');
+    await expect(compressReportImage(svg)).rejects.toThrow("SVG");
+  });
+
+  test("imagem acima do limite de pixels é recusada antes de redimensionar", async () => {
+    await expect(
+      compressReportImage(PNG_320x200, { maxWidth: 32, maxHeight: 32, maxSourcePixels: 1_000 }),
+    ).rejects.toThrow("pixels");
   });
 });

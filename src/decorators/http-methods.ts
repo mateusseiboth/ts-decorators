@@ -2,7 +2,10 @@ import "reflect-metadata";
 import type { RequestHandler } from "express";
 
 import { getRestRoutes } from "./rest";
-import type { RouteBuilder } from "./router-builder";
+import { ROUTE_FROM_CONTROLLER, RouteBuilder } from "./router-builder";
+import { withRespond, type RouteResponder } from "./routeResponse";
+
+export type { RouteResponder } from "./routeResponse";
 
 /**
  * Decorators de rota no estilo NestJS (@Get, @Post, @Put, ...).
@@ -154,33 +157,11 @@ export interface ApplyControllerRoutesConfig {
   wrap?: RouteWrapper;
   /**
    * Responde com o que o método devolveu, DEPOIS do último handler terminar (do `wrap` que abre
-   * e fecha a transação, por exemplo: a resposta sai depois do commit). Não roda quando o método
-   * devolve `undefined` ou já respondeu.
+   * e fecha a transação, por exemplo: a resposta sai depois do commit). Roda sempre que ninguém
+   * respondeu, inclusive com `undefined`. Sem ele, vale o `respond` do builder, se houver.
    */
   respond?: RouteResponder;
 }
-
-/** Monta a resposta a partir do retorno do método do controller. */
-export type RouteResponder = (
-  result: unknown,
-  req: Parameters<RequestHandler>[0],
-  res: Parameters<RequestHandler>[1],
-  def: RouteDefinition,
-) => unknown;
-
-/** O último handler, seguido do `respond` quando ele existe. */
-const withRespond = (
-  handler: RequestHandler,
-  respond: RouteResponder | undefined,
-  def: RouteDefinition,
-): RequestHandler => {
-  if (!respond) return handler;
-  return async (req, res, next) => {
-    const result = await (handler(req, res, next) as unknown);
-    if (result === undefined || res.headersSent) return;
-    await respond(result, req, res, def);
-  };
-};
 
 /**
  * Todas as rotas de um registry, para gerar o OpenAPI: as do `@Rest` do registry e as dos verbos
@@ -191,7 +172,19 @@ export function listRouteDefinitions(
   registry: any,
   controller: any = registry?.controller,
 ): RouteDefinition[] {
-  return [...getRestRoutes(registry), ...(controller ? getControllerRoutes(controller) : [])];
+  return [
+    ...getRestRoutes(registry),
+    ...(controller ? getControllerRoutes(controller) : []),
+    ...readDeclaredRoutes(registry),
+  ];
+}
+
+/** As rotas do `declareRoutes()`: as que os builders do registry registraram. */
+function readDeclaredRoutes(registry: any): RouteDefinition[] {
+  const builders = Object.values(registry ?? {}).filter(
+    (valor): valor is RouteBuilder => valor instanceof RouteBuilder,
+  );
+  return [...new Set(builders.flatMap((builder) => builder.definitions()))];
 }
 
 /**
@@ -222,6 +215,10 @@ export function applyControllerRoutes(config: ApplyControllerRoutesConfig): void
 
     const base = resolveBuilder(def.options.use, def);
     const builder = typeof def.options.build === "function" ? def.options.build(base, def) : base;
-    (builder as any)[def.method](def.path, ...handlerArray);
+    // No RouteBuilder, a rota vai marcada: o builder aplica o `respond` dele, mas não a lista
+    // como rota declarada (ela já sai do `@Rest`/verbos no `listRouteDefinitions`).
+    const marcada = { ...def.options, [ROUTE_FROM_CONTROLLER]: true };
+    const args = builder instanceof RouteBuilder ? [marcada, ...handlerArray] : handlerArray;
+    (builder as any)[def.method](def.path, ...args);
   }
 }

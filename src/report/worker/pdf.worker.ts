@@ -6,7 +6,7 @@
  * thread — o worker não conhece aliases nem o layout do app.
  *
  * Pipeline por job: import dinâmico do render da view → helpers/partials
- * Handlebars → brasão (fetch limitado + sharp opcional) → HTML em disco →
+ * Handlebars → brasão (fetch limitado + Bun.Image) → HTML em disco →
  * Chromium QUENTE (page.goto file://) → PDF em lotes por peso (opt-in da view)
  * → merge pdfunite → progresso via postMessage.
  *
