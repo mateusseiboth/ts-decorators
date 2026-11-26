@@ -727,7 +727,15 @@ export {
 } from "./src/observability/metrics";
 export { assertWhereFitsContract, InvalidFilterError } from "./src/prisma8/contractFilter";
 export { prepareRead, readShared, shareReads, type PreparedQuery } from "./src/prisma8/reads";
-export { EMPTY_SQL, joinSql, sql, SqlFragment, toTemplate } from "./src/prisma8/sqlFragment";
+export {
+  EMPTY_SQL,
+  joinSql,
+  sql,
+  SqlFragment,
+  sqlNullable,
+  toTemplate,
+  type RawSqlValue,
+} from "./src/prisma8/sqlFragment";
 
 // --- Resiliência, operação, observabilidade e permissões ---
 export { flushAuditReads } from "./src/decorators/auditable";

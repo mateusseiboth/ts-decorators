@@ -4,6 +4,18 @@ Da versão mais nova para a mais antiga. As entradas marcadas como **base** vier
 de que este pacote nasceu (mesma origem, linhas separadas desde julho de 2026) e chegam aqui
 juntas na 2.0.0-rc.1. A versão entre parênteses é a da base, para quem compara as duas linhas.
 
+## 2.0.0-rc.40 (2026-11-26)
+
+- **`toTemplate` no tipo do `raw.sql` do Prisma 8.** Os valores saem tipados como `RawSqlValue`
+  (`number | bigint | string | boolean | Uint8Array`, o `RawSqlLiteral` do Prisma 8):
+  `db.raw.sql(...toTemplate(trecho))` compila sem cast. `toTemplate<RawSqlInterpolation>(trecho)`
+  usa o tipo do próprio Prisma, quando o projeto quiser.
+- **`null` interpolado vira `NULL` no texto** (a interpolação crua do Prisma 8 não aceita `null`
+  como parâmetro). `undefined` interpolado agora lança na montagem, com a mensagem de usar `null`
+  ou `EMPTY_SQL`; antes chegava ao Prisma e falhava lá.
+- `sqlNullable(valor, "uuid")`: `CAST(NULL AS uuid)` quando falta, `CAST($n AS uuid)` quando
+  existe. O tipo é conferido como nome de tipo, nunca vira texto livre.
+
 ## 2.0.0-rc.39 (2026-11-26)
 
 - **Container: construtor herdado.** A classe sem construtor próprio (`class Registry extends

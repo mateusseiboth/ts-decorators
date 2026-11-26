@@ -1131,7 +1131,11 @@ const plano = db.raw.sql(...toTemplate(sql`SELECT id FROM feriados WHERE ${filtr
   .build();
 ```
 
-O texto do trecho nunca vem da requisição: valor de fora entra sempre como `${valor}`. Data
+O texto do trecho nunca vem da requisição: valor de fora entra sempre como `${valor}`.
+O `toTemplate` devolve os valores no tipo que o `raw.sql` aceita (`RawSqlValue`), sem cast.
+`null` interpolado vira `NULL` no texto; para o `NULL` com tipo, `sqlNullable(valor, "uuid")` gera
+`CAST(NULL AS uuid)` ou `CAST($n AS uuid)`. `undefined` interpolado lança: use `null` ou
+`EMPTY_SQL`. Data
 interpolada vai como `timestamptz` quando o `configurePrisma8` recebe o `param` de
 `@prisma/orm-family-sql/relational-core`; sem ele, data no SQL cru lança.
 

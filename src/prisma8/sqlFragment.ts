@@ -29,6 +29,13 @@ export class SqlFragment {
   ) {}
 }
 
+/**
+ * O valor que o `raw.sql` do Prisma 8 aceita cru (`RawSqlLiteral` de
+ * `@prisma/orm-family-sql/relational-core`). Data vai como o `ParamRef` do `param`, que o
+ * `raw.sql` também aceita.
+ */
+export type RawSqlValue = number | bigint | string | boolean | Uint8Array;
+
 /** O trecho vazio, para a parte opcional ausente: `${hasFiltro ? filtro : EMPTY_SQL}`. */
 export const EMPTY_SQL = new SqlFragment([""], []);
 
@@ -41,8 +48,20 @@ function appendFragment(strings: string[], values: unknown[], fragment: SqlFragm
   });
 }
 
-const asFragment = (value: unknown): SqlFragment =>
-  value instanceof SqlFragment ? value : new SqlFragment(["", ""], [value]);
+/** `NULL` no texto: a interpolação crua do Prisma 8 não aceita `null` como parâmetro. */
+const SQL_NULL = new SqlFragment(["NULL"], []);
+
+/** O fragmento de cada interpolação: trecho como texto, `null` como `NULL`, o resto parâmetro. */
+const asFragment = (value: unknown): SqlFragment => {
+  if (value instanceof SqlFragment) return value;
+  if (value === null) return SQL_NULL;
+  if (value === undefined) {
+    throw new TypeError(
+      "[@mateusseiboth/ts-decorators] Valor undefined no SQL cru. Use null (vira NULL) ou EMPTY_SQL.",
+    );
+  }
+  return new SqlFragment(["", ""], [value]);
+};
 
 /** Template tag: o valor interpolado vira parâmetro, e o trecho interpolado, parte do texto. */
 export function sql(strings: readonly string[], ...values: unknown[]): SqlFragment {
@@ -81,10 +100,30 @@ function encodeValue(value: unknown): unknown {
   return param(value, { codecId: CODEC_DA_DATA });
 }
 
-/** O trecho como os argumentos do `db.raw.sql`: `db.raw.sql(...toTemplate(trecho))`. */
-export function toTemplate(fragment: SqlFragment): [TemplateStringsArray, ...unknown[]] {
+/**
+ * O trecho como os argumentos do `db.raw.sql`, já no tipo que ele aceita:
+ * `db.raw.sql(...toTemplate(trecho))`, sem cast. `I` troca o tipo da interpolação quando o projeto
+ * quer o `RawSqlInterpolation` do próprio Prisma: `toTemplate<RawSqlInterpolation>(trecho)`.
+ */
+export function toTemplate<I = RawSqlValue>(fragment: SqlFragment): [TemplateStringsArray, ...I[]] {
   const strings = Object.assign([...fragment.strings], {
     raw: [...fragment.strings],
   }) as unknown as TemplateStringsArray;
-  return [strings, ...fragment.values.map(encodeValue)];
+  return [strings, ...(fragment.values.map(encodeValue) as I[])];
+}
+
+/** Nome de tipo do Postgres: `uuid`, `text`, `timestamp with time zone`, `int4[]`... */
+const NOME_DE_TIPO = /^[A-Za-z_][A-Za-z0-9_]*( [A-Za-z_][A-Za-z0-9_]*)*(\[\])?$/;
+
+/**
+ * Valor opcional com tipo: `null` vira `CAST(NULL AS tipo)` e o valor vira `CAST($n AS tipo)`. Para
+ * a coluna em que o `NULL` sem tipo não resolve (`COALESCE`, `CASE`, função sobrecarregada).
+ */
+export function sqlNullable(value: unknown, type: string): SqlFragment {
+  if (!NOME_DE_TIPO.test(type)) {
+    throw new TypeError(
+      `[@mateusseiboth/ts-decorators] sqlNullable: "${type}" não é um nome de tipo.`,
+    );
+  }
+  return sql`CAST(${value ?? null} AS ${new SqlFragment([type], [])})`;
 }
