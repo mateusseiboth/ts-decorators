@@ -27,10 +27,50 @@ import { disposeShutdownHooks, initShutdownHooks } from "./shutdown";
 const DI_PARAMTYPES_KEY = "di:paramtypes";
 const DI_SCOPE_KEY = "di:scope";
 const DI_SCOPE_KEYFN = "di:scopeKeyFn";
+const DI_INJECT_KEY = "di:inject";
 
 export type DiScope = "singleton" | "scoped" | "transient";
 
 type ScopeResolver = () => string;
+
+declare const TOKEN_TYPE: unique symbol;
+
+/** Token que não é classe (interface, valor de configuração), tipado pelo que ele entrega. */
+export interface InjectionToken<T> {
+  readonly name: string;
+  readonly [TOKEN_TYPE]?: T;
+}
+
+type Construtor<T> = new (...args: any[]) => T;
+
+/** O que o container resolve: uma classe ou um token. */
+export type Resolvable<T> = Construtor<T> | InjectionToken<T>;
+
+const TOKENS = new WeakSet<object>();
+
+/** Cria um token: `const RELOGIO = createToken<Relogio>("Relogio")`. */
+export function createToken<T>(name: string): InjectionToken<T> {
+  const token = Object.freeze({ name, toString: () => `InjectionToken(${name})` });
+  TOKENS.add(token);
+  return token as InjectionToken<T>;
+}
+
+const isToken = (valor: unknown): valor is InjectionToken<unknown> =>
+  typeof valor === "object" && valor !== null && TOKENS.has(valor);
+
+/**
+ * Parâmetro do construtor resolvido por um token (`design:paramtypes` de uma interface é
+ * `Object`): `constructor(@Inject(RELOGIO) relogio: Relogio)`. Modo legado.
+ */
+export function Inject(token: InjectionToken<unknown>): ParameterDecorator {
+  return (target, _propertyKey, index) => {
+    const mapa: Record<number, InjectionToken<unknown>> = {
+      ...(Reflect.getOwnMetadata(DI_INJECT_KEY, target) ?? {}),
+      [index]: token,
+    };
+    Reflect.defineMetadata(DI_INJECT_KEY, mapa, target);
+  };
+}
 
 class Container {
   private readonly singletons = new Map<any, any>();
@@ -44,7 +84,19 @@ class Container {
   }
 
   /** Resolve (ou cria) uma instância do tipo, respeitando o escopo declarado. */
-  get<T>(target: new (...args: any[]) => T): T {
+  get<T>(target: Resolvable<T>): T {
+    if (isToken(target)) return this.readToken(target);
+    return this.build(target);
+  }
+
+  private readToken<T>(token: InjectionToken<T>): T {
+    if (this.singletons.has(token)) return this.singletons.get(token) as T;
+    throw new Error(
+      `[@mateusseiboth/ts-decorators] Nada registrado para o token ${token.name}. Use container.register(token, valor).`,
+    );
+  }
+
+  private build<T>(target: Construtor<T>): T {
     const scope: DiScope = Reflect.getMetadata(DI_SCOPE_KEY, target) ?? "singleton";
 
     const cached = this.readCache<T>(target, scope);
@@ -55,7 +107,11 @@ class Container {
       (Reflect.getMetadata(DI_PARAMTYPES_KEY, target) as any[]) ??
       [];
 
-    const injections = deps.map((dep: any) => this.get(dep));
+    const tokens: Record<number, InjectionToken<unknown>> = Reflect.getMetadata(
+      DI_INJECT_KEY,
+      target,
+    ) ?? {};
+    const injections = deps.map((dep: any, index: number) => this.get(tokens[index] ?? dep));
     const instance = new target(...injections);
 
     this.writeCache(target, scope, instance);
@@ -108,7 +164,7 @@ class Container {
   }
 
   /** Registra uma instância já construída (útil para testes e overrides). */
-  register<T>(target: new (...args: any[]) => T, instance: T): void {
+  register<T>(target: Resolvable<T>, instance: T): void {
     this.singletons.set(target, instance);
   }
 
@@ -147,4 +203,15 @@ function warnIfLeaky(target: any, scope: DiScope, instance: any): void {
   );
 }
 
+export type { Container };
+
+/** O container global do processo. */
 export const container = new Container();
+
+/**
+ * Um container próprio (por app, por teste): instâncias e escopos só dele, sem tocar no global.
+ * Os decorators (`@Injectable`, `@Inject`, `@Singleton`...) valem para todos.
+ */
+export function createContainer(): Container {
+  return new Container();
+}

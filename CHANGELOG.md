@@ -4,6 +4,31 @@ Da versão mais nova para a mais antiga. As entradas marcadas como **base** vier
 de que este pacote nasceu (mesma origem, linhas separadas desde julho de 2026) e chegam aqui
 juntas na 2.0.0-rc.1. A versão entre parênteses é a da base, para quem compara as duas linhas.
 
+## 2.0.0-rc.36 (2026-11-26)
+
+Rotas, container e transação para backends com registry e controllers decorados.
+
+- `Transactional(prisma)` (middleware) chama o injetor mesmo sem `res.locals.entity` quando ele é
+  contextual (`configureTenantGucs`): o super admin recebe as GUCs. `markContextualInjector`
+  marca um injetor próprio do mesmo jeito.
+- `mergeParams` no `folderRouter`, no `@RegistryRouter` e no `@GlobalRouter`: os params do
+  caminho de montagem (`/academias/:academiaId`) chegam às rotas.
+- `applyControllerRoutes({ respond })`: responde com o que o método devolveu, depois do último
+  handler (o `wrap` que abre e fecha a transação), ou seja, depois do commit. Não roda quando o
+  método devolve `undefined` ou já respondeu.
+- `listRouteDefinitions(registry)`: as rotas do `@Rest` do registry e dos verbos do controller, com
+  método, caminho, handler e opções; `RouteOptions.doc` (`summary`, `tags`, `body`,
+  `responses`...) para o projeto gerar o OpenAPI.
+- `setLegacyWarnings(false)`: o projeto que usa o modo legado de propósito (o `@Injectable`
+  depende do `design:paramtypes`) desliga o aviso "LEGACY".
+- `RouteBuilder`: `router`, `defaultMiddlewares` e `mergeHandlers` são `protected`, e o `extend`
+  devolve a subclasse.
+- Container: `createToken<T>(nome)` e `@Inject(token)` para dependência que não é classe;
+  `register`/`get` aceitam token. `createContainer()` cria um container próprio (por app, por
+  teste), sem `container.clear()`.
+- `GlobalRouterApp`: base que declara o `initializeRoutes` que o `@GlobalRouter` acrescenta, para
+  o projeto chamar sem cast.
+
 ## 2.0.0-rc.35 (2026-11-26)
 
 Listagem para multi-tenant com RLS por várias GUCs.

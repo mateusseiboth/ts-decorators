@@ -1,6 +1,7 @@
 import "reflect-metadata";
 import type { RequestHandler } from "express";
 
+import { getRestRoutes } from "./rest";
 import type { RouteBuilder } from "./router-builder";
 
 /**
@@ -37,7 +38,26 @@ export const HTTP_ROUTES_KEY = Symbol("HTTP_ROUTES_KEY");
 
 export type HttpMethod = "get" | "post" | "put" | "patch" | "delete" | "options" | "head" | "all";
 
+/**
+ * Documentação da rota, para o projeto gerar o OpenAPI a partir de `listRouteDefinitions`. Os
+ * esquemas são livres (zod, JSON Schema...): o pacote só os guarda.
+ */
+export interface RouteDoc {
+  summary?: string;
+  description?: string;
+  tags?: string[];
+  deprecated?: boolean;
+  operationId?: string;
+  params?: unknown;
+  query?: unknown;
+  body?: unknown;
+  responses?: Record<number | string, unknown>;
+  [key: string]: unknown;
+}
+
 export interface RouteOptions {
+  /** Documentação da rota (OpenAPI). */
+  doc?: RouteDoc;
   /**
    * Nome da propriedade RouteBuilder a usar no registry ao aplicar a rota
    * (ex.: "routeWithPaginate", "routeWithIdempotency"). Default: "route".
@@ -132,6 +152,46 @@ export interface ApplyControllerRoutesConfig {
   resolveBuilder: (use: string | undefined, def: RouteDefinition) => RouteBuilder;
   /** Envolve cada handler. Se ausente, o método do controller é chamado direto. */
   wrap?: RouteWrapper;
+  /**
+   * Responde com o que o método devolveu, DEPOIS do último handler terminar (do `wrap` que abre
+   * e fecha a transação, por exemplo: a resposta sai depois do commit). Não roda quando o método
+   * devolve `undefined` ou já respondeu.
+   */
+  respond?: RouteResponder;
+}
+
+/** Monta a resposta a partir do retorno do método do controller. */
+export type RouteResponder = (
+  result: unknown,
+  req: Parameters<RequestHandler>[0],
+  res: Parameters<RequestHandler>[1],
+  def: RouteDefinition,
+) => unknown;
+
+/** O último handler, seguido do `respond` quando ele existe. */
+const withRespond = (
+  handler: RequestHandler,
+  respond: RouteResponder | undefined,
+  def: RouteDefinition,
+): RequestHandler => {
+  if (!respond) return handler;
+  return async (req, res, next) => {
+    const result = await (handler(req, res, next) as unknown);
+    if (result === undefined || res.headersSent) return;
+    await respond(result, req, res, def);
+  };
+};
+
+/**
+ * Todas as rotas de um registry, para gerar o OpenAPI: as do `@Rest` do registry e as dos verbos
+ * (`@Get`, `@Post`...) do controller, com método, caminho, handler e opções (inclusive `doc`).
+ * O caminho é relativo à montagem do registry.
+ */
+export function listRouteDefinitions(
+  registry: any,
+  controller: any = registry?.controller,
+): RouteDefinition[] {
+  return [...getRestRoutes(registry), ...(controller ? getControllerRoutes(controller) : [])];
 }
 
 /**
@@ -140,7 +200,7 @@ export interface ApplyControllerRoutesConfig {
  * Rotas cujo handler não existe no controller são ignoradas com um aviso.
  */
 export function applyControllerRoutes(config: ApplyControllerRoutesConfig): void {
-  const { controller, resolveBuilder, wrap } = config;
+  const { controller, resolveBuilder, wrap, respond } = config;
   const routes = config.routes ?? getControllerRoutes(controller);
 
   for (const def of routes) {
@@ -155,7 +215,10 @@ export function applyControllerRoutes(config: ApplyControllerRoutesConfig): void
     const invoke: RequestHandler = (req, res, next) => controller[def.handlerName](req, res, next);
 
     const handlers = wrap ? wrap(def, invoke) : invoke;
-    const handlerArray = Array.isArray(handlers) ? handlers : [handlers];
+    const lista = Array.isArray(handlers) ? handlers : [handlers];
+    const handlerArray = lista.map((handler, indice) =>
+      indice === lista.length - 1 ? withRespond(handler, respond, def) : handler,
+    );
 
     const base = resolveBuilder(def.options.use, def);
     const builder = typeof def.options.build === "function" ? def.options.build(base, def) : base;

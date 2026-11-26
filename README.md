@@ -2134,6 +2134,49 @@ chamado diretamente.
 
 ---
 
+### Registry e controllers: `respond`, OpenAPI, `mergeParams` e container por app
+
+```ts
+// pasta montada com o param da academia
+@GlobalRouter()
+export class Server extends GlobalRouterApp {
+  app = express();
+  @RegistryRouter({ folder: "src/routes", prefix: "/academias/:academiaId", mergeParams: true })
+  rotas() {}
+}
+await new Server().initializeRoutes(); // sem cast
+
+// rotas do registry, com a resposta depois do commit
+applyControllerRoutes({
+  controller,
+  routes: listRouteDefinitions(this),
+  resolveBuilder: (use) => this[use ?? "route"],
+  wrap: (def, invoke) => (req, res, next) => withTransaction(() => invoke(req, res, next)),
+  respond: (result, _req, res) => res.json({ data: result }),
+});
+
+// OpenAPI: método, caminho, handler e `options.doc` de cada rota
+for (const rota of listRouteDefinitions(registry)) gerarOperacao(rota.method, rota.path, rota.options.doc);
+
+// container por teste e dependência que não é classe
+const RELOGIO = createToken<Relogio>("Relogio");
+@Injectable()
+class Agenda {
+  constructor(@Inject(RELOGIO) readonly relogio: Relogio) {}
+}
+const c = createContainer();
+c.register(RELOGIO, { agora: () => Date.now() });
+c.get(Agenda);
+```
+
+- `@Get("/:id", { doc: { summary: "Aluno pelo id", tags: ["alunos"] } })`: o `doc` é livre (zod,
+  JSON Schema...), o pacote só guarda.
+- Projeto que usa o modo legado de propósito: `setLegacyWarnings(false)` no boot.
+- `RouteBuilder` pode ser estendido: `router` e `defaultMiddlewares` são `protected` e o `extend`
+  devolve a subclasse.
+
+---
+
 ## Boot wiring (handlers)
 
 O pacote não importa Prisma nem conhece o contexto do app — o app injeta tudo UMA

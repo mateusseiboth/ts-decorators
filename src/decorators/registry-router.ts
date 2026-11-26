@@ -9,6 +9,8 @@ export type RegistryRouterOptions = {
   folder: string;
   middlewares?: RequestHandler[];
   prefix?: string;
+  /** Leva os params do prefixo (`/academias/:academiaId`) para as rotas da pasta. */
+  mergeParams?: boolean;
 };
 
 export function RegistryRouter(options: RegistryRouterOptions) {
@@ -19,6 +21,7 @@ export function RegistryRouter(options: RegistryRouterOptions) {
       folder: options.folder,
       middlewares: options.middlewares || [],
       prefix: options.prefix || "",
+      mergeParams: options.mergeParams === true,
     });
     logger.debug(`Registered routes after adding: ${routes.length}`);
   };

@@ -62,6 +62,22 @@ export const defaultCompanyIdInjector: CompanyIdInjector = async (tx, companyId)
   return setCompanyId(tx, String(companyId));
 };
 
+/**
+ * Injetores que leem o tenant do CONTEXTO (as GUCs) e não do company id: rodam em toda transação,
+ * mesmo sem `res.locals.entity` (o super admin, por exemplo).
+ */
+const _contextuais = new WeakSet<CompanyIdInjector>();
+
+/** Marca o injetor como contextual: o `Transactional` chama mesmo sem company id. */
+export function markContextualInjector<T extends CompanyIdInjector>(injector: T): T {
+  _contextuais.add(injector);
+  return injector;
+}
+
+export function isContextualInjector(injector: unknown): boolean {
+  return typeof injector === "function" && _contextuais.has(injector as CompanyIdInjector);
+}
+
 /** Estratégia vazia: não injeta nada na transação. */
 export const noopCompanyIdInjector: CompanyIdInjector = () => undefined;
 

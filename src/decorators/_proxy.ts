@@ -11,6 +11,15 @@
 import { logger } from "../functions/logger";
 
 const _legacyWarnings = new Set<string>();
+let _avisaLegado = true;
+
+/**
+ * Liga ou desliga o aviso de decorator legado. O projeto que usa o modo legado de propósito
+ * (`experimentalDecorators`, porque o `@Injectable` depende do `design:paramtypes`) desliga no boot.
+ */
+export function setLegacyWarnings(enabled: boolean): void {
+  _avisaLegado = enabled;
+}
 
 /** Detecta se o argumento é um DecoratorContext TC39 Stage 3 */
 export function isDecoratorContext(arg: any): boolean {
@@ -25,7 +34,7 @@ export function isDecoratorContext(arg: any): boolean {
 
 /** Emite aviso de uso de decorator legacy (uma vez por nome) */
 export function warnLegacy(name: string): void {
-  if (_legacyWarnings.has(name)) return;
+  if (!_avisaLegado || _legacyWarnings.has(name)) return;
   _legacyWarnings.add(name);
   logger.warn(
     `[@mateusseiboth/ts-decorators] ⚠️  Decorator @${name} está sendo usado no padrão LEGACY (experimentalDecorators). ` +

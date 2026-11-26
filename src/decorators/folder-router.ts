@@ -27,9 +27,11 @@ export interface MountedRouter extends RegisteredRoute {
  */
 export const AllRouters: Record<string, MountedRouter> = {};
 
-type FolderRouterOptions = {
+export type FolderRouterOptions = {
   middlewares?: RequestHandler[];
   prefix?: string;
+  /** Leva os params do caminho de montagem (`/academias/:academiaId`) para as rotas. */
+  mergeParams?: boolean;
 };
 
 /**
@@ -109,7 +111,7 @@ export async function folderRouter(
         "/" +
         relativeDir.split(path.sep).filter(Boolean).join("/");
       logger.debug(`Computed route path for ${fullPath}: ${routePath}`);
-      const router = Router();
+      const router = Router({ mergeParams: options?.mergeParams === true });
 
       const routeMiddlewares = imported.middlewares || [];
       // A rota que não pode herdar (upload multipart, antes do multer) declara a saída.

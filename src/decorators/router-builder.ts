@@ -18,11 +18,11 @@ type ModelComPaginacao = { paginate?: PaginateMiddlewareOptions };
 
 export class RouteBuilder {
   constructor(
-    private router: Router,
-    private defaultMiddlewares: HttpHandler[] = [],
+    protected router: Router,
+    protected defaultMiddlewares: HttpHandler[] = [],
   ) {}
 
-  private mergeHandlers(handlers: HttpHandler[]) {
+  protected mergeHandlers(handlers: HttpHandler[]) {
     return [...this.defaultMiddlewares, ...handlers];
   }
 
@@ -62,8 +62,10 @@ export class RouteBuilder {
     this.router.use(...this.mergeHandlers(handlers));
   }
 
-  extend(middlewares: RequestHandler[]) {
-    return new RouteBuilder(this.router, [...this.defaultMiddlewares, ...middlewares]);
+  /** Um builder com os middlewares a mais; na subclasse, devolve a subclasse. */
+  extend(middlewares: RequestHandler[]): this {
+    const Builder = this.constructor as new (router: Router, middlewares: HttpHandler[]) => this;
+    return new Builder(this.router, [...this.defaultMiddlewares, ...middlewares]);
   }
 
   withPrismaOptions<T extends { tag: number; getModel: () => any }>(

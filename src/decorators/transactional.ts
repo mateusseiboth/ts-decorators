@@ -30,7 +30,11 @@ import type { NextFunction, Request, Response } from "express";
 
 import { logger } from "../functions/logger";
 import { markCommitQueue, rollbackCommitQueue } from "../handlers/afterCommit";
-import type { CompanyIdInjector } from "../handlers/companyId";
+import {
+  getCompanyIdInjector,
+  isContextualInjector,
+  type CompanyIdInjector,
+} from "../handlers/companyId";
 import { runInTransaction, type PrismaClientLike } from "../handlers/prisma";
 import { isPrisma7Tx, isPrisma8Tx, runStatement } from "../prisma8/client";
 import { wrapMetodosDaClasse } from "./_method";
@@ -101,6 +105,19 @@ const savepointDecision: Record<SavepointPolicy, (tx: object) => boolean> = {
 };
 
 /**
+ * O injetor do middleware: o da rota, o do `setTransactionalCompanyFn`, ou o global quando ele é
+ * contextual (as GUCs do `configureTenantGucs`), que vale mesmo sem nada registrado aqui.
+ */
+const resolveAddCompany = (daRota: CompanyIdInjector | undefined) => {
+  const global = getCompanyIdInjector();
+  return daRota ?? _addCompanyFn ?? (isContextualInjector(global) ? global : null);
+};
+
+/** Injetor que lê o tenant do contexto: roda sem `res.locals.entity` (o super admin). */
+const isContextual = (addCompany: unknown) =>
+  isContextualInjector(addCompany) || isContextualInjector(getCompanyIdInjector());
+
+/**
  * Middleware factory: cria uma transação e injeta em res.locals.tx.
  * Uso: router.post("/", Transactional(prismaClient), handler)
  */
@@ -117,8 +134,8 @@ export function Transactional(
     runInTransaction(
       prisma,
       async (tx) => {
-        const addCompany = options?.companyIdInjector ?? _addCompanyFn;
-        if (addCompany && res.locals.entity) {
+        const addCompany = resolveAddCompany(options?.companyIdInjector);
+        if (addCompany && (res.locals.entity || isContextual(addCompany))) {
           await addCompany(tx, res.locals.entity);
         }
         res.locals.tx = tx;

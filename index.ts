@@ -919,3 +919,23 @@ export {
   type TransactionGucsResolver,
   type TransactionGucValue,
 } from "./src/handlers/tenantGucs";
+
+// --- Rotas, container e decorators: respond, OpenAPI, tokens e container por app ---
+export { setLegacyWarnings } from "./src/decorators/_proxy";
+export {
+  Inject,
+  createContainer,
+  createToken,
+  type Container,
+  type InjectionToken,
+  type Resolvable,
+} from "./src/decorators/container";
+export type { FolderRouterOptions } from "./src/decorators/folder-router";
+export { GlobalRouterApp, type GlobalRouterHost } from "./src/decorators/global-router";
+export {
+  listRouteDefinitions,
+  type RouteDoc,
+  type RouteResponder,
+} from "./src/decorators/http-methods";
+export type { RegistryRouterOptions } from "./src/decorators/registry-router";
+export { isContextualInjector, markContextualInjector } from "./src/handlers/companyId";

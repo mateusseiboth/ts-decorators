@@ -17,7 +17,12 @@
  */
 import { stableStringify } from "../functions/object";
 import { isPrisma7Tx, isPrisma8Tx, rawParamStatementPlan, type Prisma8Tx } from "../prisma8/client";
-import { resetCompanyIdInjector, setCompanyIdInjector, type CompanyIdInjector } from "./companyId";
+import {
+  markContextualInjector,
+  resetCompanyIdInjector,
+  setCompanyIdInjector,
+  type CompanyIdInjector,
+} from "./companyId";
 import {
   getHandlerContext,
   resetTenantScope,
@@ -98,9 +103,9 @@ export async function applyTransactionGucs(tx: unknown, gucs: TransactionGucs): 
 
 /** Injetor para o `setCompanyIdInjector`: ignora o company id e fixa as GUCs do contexto. */
 export function createGucsInjector(resolve: TransactionGucsResolver): CompanyIdInjector {
-  return function gucsInjector(tx) {
+  return markContextualInjector(function gucsInjector(tx) {
     return applyTransactionGucs(tx, resolve(getHandlerContext()));
-  };
+  });
 }
 
 /** O escopo do tenant: as GUCs definidas, em ordem estável. */
